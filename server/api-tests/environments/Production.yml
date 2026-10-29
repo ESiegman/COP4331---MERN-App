@@ -1,4 +1,0 @@
-name: Production
-variables:
-  - name: baseURL
-    value: https://mern.esiegman.dev

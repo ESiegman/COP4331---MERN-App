@@ -58,18 +58,6 @@ Everything except register, login, and health needs the token from login or regi
 
 Passwords are hashed with bcrypt and never returned. The code is in `server/src`: routes in `routes/`, handlers in `controllers/`, the `User` and `Card` models in `models/`, and the token checks in `middleware/auth.js`.
 
-### Testing with Bruno
-
-The collection is in `server/api-tests`. In Bruno, open that folder, pick the Development or Production environment, and run the collection. Run the whole collection in order: Register creates a new account, Login saves its token, and the card requests use that token to add, list, search, edit, and delete a card. The last few requests check the error cases (401, 403, 400).
-
-From the command line:
-
-```sh
-cd server/api-tests
-npx @usebruno/cli run --env Development
-npx @usebruno/cli run --env Production
-```
-
 ## Deployment
 
 Pushing to `main` runs `.github/workflows/deploy.yml`:

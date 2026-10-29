@@ -8,8 +8,7 @@ const userId = '64b000000000000000000001';
 const otherId = '64b000000000000000000002';
 const token = createToken({ _id: userId });
 
-// These don't need a database. The full login/register flow is covered by
-// the Bruno collection in api-tests/.
+// These run without a database
 
 test('GET /api/health returns 200', async () => {
   const res = await request(app).get('/api/health');
