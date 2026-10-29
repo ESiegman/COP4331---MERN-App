@@ -1,0 +1,44 @@
+info:
+  name: Add Card
+  type: http
+  seq: 6
+
+http:
+  method: POST
+  url: "{{baseURL}}/api/users/{{userId}}/cards"
+  auth:
+    type: bearer
+    token: "{{token}}"
+  body:
+    type: json
+    data: |-
+      {
+        "playerName": "Monkey D. Luffy",
+        "teamName": "Straw Hat Pirates",
+        "cardValue": 100,
+        "publisher": "Bandai"
+      }
+
+runtime:
+  scripts:
+    - type: after-response
+      code: |-
+        if (res.getStatus() === 201) {
+          bru.setVar("cardId", res.getBody()._id);
+        }
+    - type: tests
+      code: |-
+        test("responds 201 with the new card", function () {
+          expect(res.getStatus()).to.equal(201);
+          expect(res.getBody().playerName).to.equal("Monkey D. Luffy");
+          expect(res.getBody().userId).to.equal(bru.getVar("userId"));
+        });
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5
+
+docs: |-
+  Adds a card for the logged-in user and saves {{cardId}}.

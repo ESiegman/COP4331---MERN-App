@@ -17,6 +17,13 @@ http:
 
 runtime:
   scripts:
+    - type: after-response
+      code: |-
+        // The protected requests use these
+        if (res.getStatus() === 200) {
+          bru.setVar("token", res.getBody().token);
+          bru.setVar("userId", res.getBody().user._id);
+        }
     - type: tests
       code: |-
         const body = res.getBody();
@@ -41,4 +48,4 @@ settings:
   maxRedirects: 5
 
 docs: |-
-  Logs in with the account from Register. Run Register first.
+  Logs in with the account from Register (run Register first) and saves {{token}} and {{userId}}.

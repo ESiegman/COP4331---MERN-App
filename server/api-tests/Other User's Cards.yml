@@ -1,0 +1,28 @@
+info:
+  name: Other User's Cards
+  type: http
+  seq: 14
+
+http:
+  method: GET
+  url: "{{baseURL}}/api/users/000000000000000000000000/cards"
+  auth:
+    type: bearer
+    token: "{{token}}"
+
+runtime:
+  scripts:
+    - type: tests
+      code: |-
+        test("responds 403 for another user", function () {
+          expect(res.getStatus()).to.equal(403);
+        });
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5
+
+docs: |-
+  A logged-in user asking for a different user's cards.

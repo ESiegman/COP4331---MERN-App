@@ -1,0 +1,36 @@
+info:
+  name: Update Card
+  type: http
+  seq: 10
+
+http:
+  method: PUT
+  url: "{{baseURL}}/api/cards/{{cardId}}"
+  auth:
+    type: bearer
+    token: "{{token}}"
+  body:
+    type: json
+    data: |-
+      {
+        "cardValue": 150
+      }
+
+runtime:
+  scripts:
+    - type: tests
+      code: |-
+        test("responds 200 with the updated card", function () {
+          expect(res.getStatus()).to.equal(200);
+          expect(res.getBody().cardValue).to.equal(150);
+          expect(res.getBody().playerName).to.equal("Monkey D. Luffy");
+        });
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5
+
+docs: |-
+  Changes only the fields sent in the body.

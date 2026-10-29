@@ -46,13 +46,21 @@ All requests and responses are JSON.
 | --- | --- | --- | --- | --- |
 | POST | `/api/users` | `firstName`, `lastName`, `login`, `password`, `email` | 201 `{ message, token, user }` | 400 missing login or password, 409 login taken |
 | POST | `/api/auth/login` | `login`, `password` | 200 `{ token, user }` | 400 missing fields, 401 wrong login or password |
+| GET | `/api/users/:userId` | | 200 user | 401, 403, 404 |
+| GET | `/api/users/:userId/cards?search=` | | 200 array of cards | 401, 403 |
+| POST | `/api/users/:userId/cards` | `playerName`, `teamName`, `cardValue`, `publisher`, `card` | 201 card | 400 invalid fields, 401, 403 |
+| GET | `/api/cards/:cardId` | | 200 card | 401, 403, 404 |
+| PUT | `/api/cards/:cardId` | any card fields | 200 updated card | 400, 401, 403, 404 |
+| DELETE | `/api/cards/:cardId` | | 200 `{ message }` | 401, 403, 404 |
 | GET | `/api/health` | | 200 `{ status: "ok" }` | |
 
-Passwords are hashed with bcrypt and never returned. The code is in `server/src`: routes in `routes/`, the handlers in `controllers/`, the `User` model in `models/`.
+Everything except register, login, and health needs the token from login or register in an `Authorization: Bearer <token>` header. A user can only reach their own account and cards: 401 means no token or a bad one, 403 means someone else's data. A malformed id returns 400. `search` matches `playerName` or `teamName`, ignoring case.
+
+Passwords are hashed with bcrypt and never returned. The code is in `server/src`: routes in `routes/`, handlers in `controllers/`, the `User` and `Card` models in `models/`, and the token checks in `middleware/auth.js`.
 
 ### Testing with Bruno
 
-The collection is in `server/api-tests`. In Bruno, open that folder, pick the Development or Production environment, and run the collection. Register creates a new account each time, and Login and Login Wrong Password use that account, so run Register first.
+The collection is in `server/api-tests`. In Bruno, open that folder, pick the Development or Production environment, and run the collection. Run the whole collection in order: Register creates a new account, Login saves its token, and the card requests use that token to add, list, search, edit, and delete a card. The last few requests check the error cases (401, 403, 400).
 
 From the command line:
 
