@@ -6,7 +6,6 @@ on:
   pull_request:
   workflow_dispatch:
 
-# Never run two deploys at once; queue them instead of cancelling mid-rollout.
 concurrency:
   group: ${{ github.event_name == 'pull_request' && format('ci-{0}', github.ref) || 'deploy-production' }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
@@ -142,9 +141,7 @@ jobs:
       - name: Upload compose file
         run: scp compose.prod.yaml "$SSH_TARGET:/opt/mern/compose.yaml"
 
-      # `up -d` only recreates containers whose image or config changed, so a
-      # frontend-only push leaves the API and database running untouched.
-      # db-setup reruns every deploy, so db/setup.js must be idempotent.
+      # up -d only recreates containers that changed
       - name: Pull images and restart changed services
         run: |
           echo "${{ secrets.GITHUB_TOKEN }}" | ssh "$SSH_TARGET" \

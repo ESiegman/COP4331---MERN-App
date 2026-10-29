@@ -1,7 +1,4 @@
-# Local development stack: `docker compose up --build`
-#   React (Vite, hot reload)  http://localhost:5173
-#   API (node --watch)        http://localhost:5000/api/health
-#   MongoDB (Atlas Local)     mongodb://root:devpassword@localhost:27017/?directConnection=true
+# Local dev: docker compose up --build
 name: mern-dev
 
 x-mongo-env: &mongo-env
@@ -22,7 +19,7 @@ services:
       - mongo-data:/data/db
       - mongo-config:/data/configdb
 
-  # One-shot: runs db/setup.js (e.g. create the app user), then exits.
+  # Creates the app database user, then exits
   db-setup:
     build: ./db
     environment:

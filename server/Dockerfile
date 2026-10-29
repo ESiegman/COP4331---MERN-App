@@ -2,7 +2,6 @@ FROM node:24-alpine AS base
 WORKDIR /app
 COPY package*.json ./
 
-# Local dev: source is bind-mounted over /app, node --watch reloads on change.
 FROM base AS dev
 RUN npm ci
 COPY . .

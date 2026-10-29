@@ -1,8 +1,6 @@
 #!/usr/bin/env bash
-# One-time droplet setup (Ubuntu 22.04/24.04). Run as root:
-#   scp deploy/bootstrap-droplet.sh root@mern.esiegman.dev:
-#   ssh root@mern.esiegman.dev 'bash bootstrap-droplet.sh "ssh-ed25519 AAAA... github-actions-deploy"'
-# The argument is the PUBLIC half of the key GitHub Actions will deploy with.
+# One-time droplet setup, run as root. Argument is the deploy public key.
+#   ssh root@mern.esiegman.dev "bash bootstrap-droplet.sh '$(cat ~/.ssh/mern_deploy.pub)'"
 set -euo pipefail
 
 DEPLOY_PUBKEY="${1:?usage: bootstrap-droplet.sh '<deploy public key>'}"
@@ -13,7 +11,7 @@ if ! command -v docker >/dev/null; then
   curl -fsSL https://get.docker.com | sh
 fi
 
-echo "==> Adding swap (Atlas Local runs mongod + mongot; small droplets need headroom)"
+echo "==> Adding swap"
 if ! swapon --show | grep -q .; then
   fallocate -l 2G /swapfile
   chmod 600 /swapfile
@@ -43,7 +41,6 @@ ufw --force enable
 echo "==> App directory and secrets"
 install -d -m 750 -o deploy -g deploy "$APP_DIR"
 if [ ! -f "$APP_DIR/.env" ]; then
-  # Hex passwords stay URL-safe inside the mongodb:// connection strings.
   cat > "$APP_DIR/.env" <<EOF
 SITE_ADDRESS=mern.esiegman.dev
 MONGO_ROOT_USER=root

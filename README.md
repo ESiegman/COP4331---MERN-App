@@ -1,97 +1,81 @@
 # COP4331 MERN App
 
-MongoDB (Atlas Local) · Express · React (Vite) · Node.js. Runs in Docker locally and on the droplet at **https://mern.esiegman.dev**.
+MongoDB, Express, React, and Node, running in Docker. Production is at https://mern.esiegman.dev.
 
-```
-db/       one-shot setup container (db/setup.js), runs before the API on every start/deploy
-server/   Express API  (src/routes, src/middleware, src/models)
-client/   React SPA + Caddyfile (prod image = Caddy serving the build, proxying /api, HTTPS)
-compose.yaml        local dev stack
-compose.prod.yaml   production stack (copied to the droplet by CI)
-deploy/             one-time droplet bootstrap
-```
+## Project layout
 
-```
-browser ──▶ web (Caddy :443) ──/api/*──▶ api (Express :5000) ──▶ mongodb (Atlas Local)
-                 └── everything else: React build                    ▲
-                                                 db-setup (runs on each deploy)
-```
+- `client/` - React app (Vite). In production it's served by Caddy, which also proxies `/api` to the server and handles HTTPS.
+- `server/` - Express API.
+- `db/` - `setup.js` creates the app's database user. It runs before the API starts, on every deploy.
+- `compose.yaml` - local dev.
+- `compose.prod.yaml` - production, copied to the droplet by the deploy workflow.
+- `deploy/bootstrap-droplet.sh` - one-time droplet setup.
+
+The database is MongoDB Atlas Local (`mongodb/mongodb-atlas-local`), MongoDB's Docker image of Atlas.
 
 ## Local development
 
-Requires Docker Desktop.
+With Docker Desktop running:
 
 ```sh
 docker compose up --build
 ```
 
-| What | Where |
-| --- | --- |
-| React (hot reload) | http://localhost:5173 |
-| API (restarts on save) | http://localhost:5000/api/health |
-| MongoDB (Compass / mongosh) | `mongodb://root:devpassword@localhost:27017/?directConnection=true` |
+- React: http://localhost:5173
+- API: http://localhost:5000/api/health
+- MongoDB: `mongodb://root:devpassword@localhost:27017/?directConnection=true`
 
-`server/` and `client/` are bind-mounted, so edits apply immediately. After changing dependencies, run `docker compose up --build`. To wipe the database, run `docker compose down -v`.
+`client/` and `server/` are mounted into the containers, so changes show up without rebuilding. Rebuild with `docker compose up --build` after adding dependencies. `docker compose down -v` wipes the database.
 
-**Running Node natively instead.** Run only the database in Docker:
+To run Node directly instead and only use Docker for the database:
 
 ```sh
 docker compose up -d mongodb db-setup
 cp server/.env.example server/.env
-(cd server && npm install && npm run dev)
-(cd client && npm install && npm run dev)   # proxies /api to localhost:5000
+cd server && npm install && npm run dev
+cd client && npm install && npm run dev
 ```
 
-**Tests:** `cd server && npm test`
-
-### What the infrastructure expects from the code
-
-The source files are empty stubs. The Docker and CI setup assumes the following once they're written:
-
-- **`db/setup.js`** connects with `MONGO_ROOT_URI`, creates the user `MONGO_APP_USER`/`MONGO_APP_PASSWORD` with `readWrite` on `MONGO_APP_DB`, and exits 0. Write it so it's safe to run every time. The API's `MONGODB_URI` logs in as that user, so the API can't reach the database until this exists.
-- **`server/src/index.js`** reads `MONGODB_URI` and `PORT` (5000) and serves everything under `/api`.
-- **`GET /api/health`** returns 200 when the API is up. Both the container healthcheck and the post-deploy smoke test call it.
-- **`client/vite.config.js`** proxies `/api` to `process.env.API_PROXY_TARGET ?? 'http://localhost:5000'`, so dev matches production, where Caddy does the proxying.
-- **`client/index.html`** is the Vite entry, and `npm run build` outputs to `dist/`.
+Run the server tests with `cd server && npm test`.
 
 ## Deployment
 
-On every push to `main`, GitHub Actions:
+Pushing to `main` runs `.github/workflows/deploy.yml`:
 
-1. Detects which of `db/`, `server/`, `client/` and `compose.prod.yaml` changed.
-2. Runs the API tests and the client build for the parts that changed (these also run on PRs).
-3. Builds and pushes only the changed images to GHCR: `ghcr.io/esiegman/mern-{db,api,web}`, tagged `latest` plus the commit SHA.
-4. Over SSH, copies `compose.prod.yaml`, pulls the images and runs `docker compose up -d`. Only the containers whose image changed restart. `db-setup` reruns on each deploy.
-5. Smoke tests `https://mern.esiegman.dev/api/health`.
+1. Checks which of `db/`, `server/`, and `client/` changed.
+2. Runs the server tests and the client build. Pull requests stop here.
+3. Builds the changed images and pushes them to `ghcr.io/esiegman/mern-db`, `mern-api`, and `mern-web`.
+4. SSHes into the droplet, pulls the new images, and runs `docker compose up -d`. Only changed containers restart.
+5. Checks that https://mern.esiegman.dev/api/health responds.
 
-To redeploy everything by hand, use **Actions → CI/CD → Run workflow**.
+You can also redeploy everything from the Actions tab with "Run workflow".
 
-### One-time droplet setup
+### Droplet setup
 
-1. **DNS:** add an `A` record from `mern.esiegman.dev` to the droplet's IP. If you use Cloudflare's proxy, set SSL mode to *Full (strict)*. Caddy gets the Let's Encrypt certificate itself.
-2. **Deploy key** (on your machine):
+This only has to be done once.
+
+1. Point an A record for `mern.esiegman.dev` at the droplet's IP.
+2. Make a deploy key:
    ```sh
    ssh-keygen -t ed25519 -f ~/.ssh/mern_deploy -C github-actions-deploy -N ""
    ```
-3. **Bootstrap.** This installs Docker, adds 2 GB swap, creates the `deploy` user, enables ufw (22/80/443), and creates `/opt/mern/.env` with random DB passwords:
+3. Run the bootstrap script as root. It installs Docker, adds swap, creates a `deploy` user, opens ports 22, 80, and 443, and generates `/opt/mern/.env` with random database passwords.
    ```sh
    scp deploy/bootstrap-droplet.sh root@mern.esiegman.dev:
    ssh root@mern.esiegman.dev "bash bootstrap-droplet.sh '$(cat ~/.ssh/mern_deploy.pub)'"
    ```
-4. **GitHub secrets.** Under repo **Settings → Secrets and variables → Actions**, add:
+4. Add these repository secrets in Settings > Secrets and variables > Actions:
 
    | Secret | Value |
    | --- | --- |
-   | `DEPLOY_HOST` | `mern.esiegman.dev` (or the droplet IP) |
+   | `DEPLOY_HOST` | `mern.esiegman.dev` |
    | `DEPLOY_USER` | `deploy` |
-   | `DEPLOY_SSH_KEY` | contents of `~/.ssh/mern_deploy` (private key) |
+   | `DEPLOY_SSH_KEY` | contents of `~/.ssh/mern_deploy` |
    | `DEPLOY_KNOWN_HOSTS` | output of `ssh-keyscan mern.esiegman.dev` |
 
-5. Push to `main`.
+Atlas Local needs a fair amount of memory, so use a droplet with at least 2 GB.
 
-A 2 GB droplet or larger is recommended. Atlas Local runs both `mongod` and `mongot` (the search engine).
-
-### Operating the droplet
+### On the droplet
 
 ```sh
 ssh deploy@mern.esiegman.dev
@@ -100,19 +84,16 @@ docker compose ps
 docker compose logs -f api
 ```
 
-**Connect Compass to production** through an SSH tunnel. Mongo listens only on the droplet's loopback.
+MongoDB only listens on the droplet itself. To open it in Compass, tunnel in over SSH first:
 
 ```sh
 ssh -N -L 27018:127.0.0.1:27017 deploy@mern.esiegman.dev
-# then: mongodb://root:<MONGO_ROOT_PASSWORD from /opt/mern/.env>@localhost:27018/?directConnection=true
 ```
 
-**Roll back** one component on the droplet:
+Then connect to `mongodb://root:<MONGO_ROOT_PASSWORD>@localhost:27018/?directConnection=true`, using the password from `/opt/mern/.env`.
+
+To roll back a service, use an image tag from a commit where that service was built:
 
 ```sh
-IMAGE_TAG=<sha> docker compose up -d --no-deps api
+IMAGE_TAG=<commit sha> docker compose up -d --no-deps api
 ```
-
-Use a commit where that component was actually built. You can find these as tags on its GHCR package page.
-
-**Move to a hosted Atlas cluster later:** point `MONGODB_URI` and `MONGO_ROOT_URI` at the `mongodb+srv://` string. Then remove the `mongodb` service and the `depends_on` that waits for it.
