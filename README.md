@@ -22,10 +22,10 @@ docker compose up --build
 ```
 
 - React: http://localhost:5173
-- API: http://localhost:5000/api/health
+- API: http://localhost:5001/api/health
 - MongoDB: `mongodb://root:devpassword@localhost:27017/?directConnection=true`
 
-`client/` and `server/` are mounted into the containers, so changes show up without rebuilding. Rebuild with `docker compose up --build` after adding dependencies. `docker compose down -v` wipes the database.
+`client/` and `server/` are mounted into the containers, so changes show up without rebuilding. After adding dependencies, run `docker compose up --build -V`. `docker compose down -v` wipes the database.
 
 To run Node directly instead and only use Docker for the database:
 
@@ -38,6 +38,30 @@ cd client && npm install && npm run dev
 
 Run the server tests with `cd server && npm test`.
 
+## API
+
+All requests and responses are JSON.
+
+| Method | Path | Body | Success | Errors |
+| --- | --- | --- | --- | --- |
+| POST | `/api/users` | `firstName`, `lastName`, `login`, `password`, `email` | 201 `{ message, token, user }` | 400 missing login or password, 409 login taken |
+| POST | `/api/auth/login` | `login`, `password` | 200 `{ token, user }` | 400 missing fields, 401 wrong login or password |
+| GET | `/api/health` | | 200 `{ status: "ok" }` | |
+
+Passwords are hashed with bcrypt and never returned. The code is in `server/src`: routes in `routes/`, the handlers in `controllers/`, the `User` model in `models/`.
+
+### Testing with Bruno
+
+The collection is in `server/api-tests`. In Bruno, open that folder, pick the Development or Production environment, and run the collection. Register creates a new account each time, and Login and Login Wrong Password use that account, so run Register first.
+
+From the command line:
+
+```sh
+cd server/api-tests
+npx @usebruno/cli run --env Development
+npx @usebruno/cli run --env Production
+```
+
 ## Deployment
 
 Pushing to `main` runs `.github/workflows/deploy.yml`:
@@ -45,7 +69,7 @@ Pushing to `main` runs `.github/workflows/deploy.yml`:
 1. Checks which of `db/`, `server/`, and `client/` changed.
 2. Runs the server tests and the client build. Pull requests stop here.
 3. Builds the changed images and pushes them to `ghcr.io/esiegman/mern-db`, `mern-api`, and `mern-web`.
-4. SSHes into the droplet, pulls the new images, and runs `docker compose up -d`. Only changed containers restart.
+4. SSHes into the droplet, copies the API source to `/opt/mern/server`, pulls the new images, and runs `docker compose up -d`. Only changed containers restart.
 5. Checks that https://mern.esiegman.dev/api/health responds.
 
 You can also redeploy everything from the Actions tab with "Run workflow".
@@ -59,7 +83,7 @@ This only has to be done once.
    ```sh
    ssh-keygen -t ed25519 -f ~/.ssh/mern_deploy -C github-actions-deploy -N ""
    ```
-3. Run the bootstrap script as root. It installs Docker, adds swap, creates a `deploy` user, opens ports 22, 80, and 443, and generates `/opt/mern/.env` with random database passwords.
+3. Run the bootstrap script as root. It installs Docker, adds swap, creates a `deploy` user, opens ports 22, 80, and 443, and generates `/opt/mern/.env` with random database passwords and a `JWT_SECRET`.
    ```sh
    scp deploy/bootstrap-droplet.sh root@mern.esiegman.dev:
    ssh root@mern.esiegman.dev "bash bootstrap-droplet.sh '$(cat ~/.ssh/mern_deploy.pub)'"
@@ -83,6 +107,8 @@ cd /opt/mern
 docker compose ps
 docker compose logs -f api
 ```
+
+The API source is at `/opt/mern/server` (for example `vi /opt/mern/server/src/controllers/authController.js`). It's a copy updated on every deploy; the running container uses the image built from the same commit.
 
 MongoDB only listens on the droplet itself. To open it in Compass, tunnel in over SSH first:
 

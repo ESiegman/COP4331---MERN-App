@@ -141,6 +141,10 @@ jobs:
       - name: Upload compose file
         run: scp compose.prod.yaml "$SSH_TARGET:/opt/mern/compose.yaml"
 
+      # Copy of the API source for viewing on the droplet
+      - name: Copy API source
+        run: rsync -a --delete --exclude node_modules --exclude .env server/ "$SSH_TARGET:/opt/mern/server/"
+
       # up -d only recreates containers that changed
       - name: Pull images and restart changed services
         run: |

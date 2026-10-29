@@ -48,6 +48,7 @@ MONGO_ROOT_PASSWORD=$(openssl rand -hex 24)
 MONGO_APP_DB=app
 MONGO_APP_USER=app
 MONGO_APP_PASSWORD=$(openssl rand -hex 24)
+JWT_SECRET=$(openssl rand -hex 32)
 EOF
   chown deploy:deploy "$APP_DIR/.env"
   chmod 600 "$APP_DIR/.env"

@@ -9,7 +9,7 @@
 	}
 
 	handle /api/* {
-		reverse_proxy api:5000
+		reverse_proxy api:5001
 	}
 
 	handle {

@@ -1,0 +1,44 @@
+info:
+  name: Login
+  type: http
+  seq: 3
+
+http:
+  method: POST
+  url: "{{baseURL}}/api/auth/login"
+  body:
+    type: json
+    data: |-
+      {
+        "login": "{{login}}",
+        "password": "{{password}}"
+      }
+  auth: inherit
+
+runtime:
+  scripts:
+    - type: tests
+      code: |-
+        const body = res.getBody();
+
+        test("responds 200 OK", function () {
+          expect(res.getStatus()).to.equal(200);
+        });
+
+        test("returns the user that logged in", function () {
+          expect(body.user.login).to.equal(bru.getVar("login"));
+          expect(body.user).to.not.have.property("password");
+        });
+
+        test("returns a token", function () {
+          expect(body.token).to.be.a("string").and.not.be.empty;
+        });
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5
+
+docs: |-
+  Logs in with the account from Register. Run Register first.
