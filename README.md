@@ -6,7 +6,7 @@ MongoDB, Express, React, and Node, running in Docker. Production is at https://m
 
 - `client/` - React app (Vite). In production it's served by Caddy, which also proxies `/api` to the server and handles HTTPS.
 - `server/` - Express API.
-- `db/` - `setup.js` creates the app's database user. It runs before the API starts, on every deploy.
+- `db/` - `setup.js` creates the app's database user. It runs before the API starts, on every deploy. See [db/README.md](db/README.md) for setting up collections.
 - `compose.yaml` - local dev.
 - `compose.prod.yaml` - production, copied to the droplet by the deploy workflow.
 - `deploy/bootstrap-droplet.sh` - one-time droplet setup.
