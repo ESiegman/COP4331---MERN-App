@@ -1,0 +1,64 @@
+# Production stack for the droplet. CI copies this file to /opt/mern/compose.yaml;
+# secrets live in /opt/mern/.env (created by deploy/bootstrap-droplet.sh).
+name: mern
+
+x-mongo-env: &mongo-env
+  MONGO_APP_DB: ${MONGO_APP_DB:-app}
+  MONGO_APP_USER: ${MONGO_APP_USER:-app}
+  MONGO_APP_PASSWORD: ${MONGO_APP_PASSWORD:?set MONGO_APP_PASSWORD in .env}
+
+services:
+  mongodb:
+    image: mongodb/mongodb-atlas-local:8.0
+    hostname: mongodb
+    restart: unless-stopped
+    environment:
+      MONGODB_INITDB_ROOT_USERNAME: ${MONGO_ROOT_USER:-root}
+      MONGODB_INITDB_ROOT_PASSWORD: ${MONGO_ROOT_PASSWORD:?set MONGO_ROOT_PASSWORD in .env}
+    # Loopback only: reach it from your machine with an SSH tunnel, never publicly.
+    ports:
+      - "127.0.0.1:27017:27017"
+    volumes:
+      - mongo-data:/data/db
+      - mongo-config:/data/configdb
+
+  db-setup:
+    image: ${IMAGE_PREFIX:-ghcr.io/esiegman/mern}-db:${IMAGE_TAG:-latest}
+    environment:
+      <<: *mongo-env
+      MONGO_ROOT_URI: mongodb://${MONGO_ROOT_USER:-root}:${MONGO_ROOT_PASSWORD}@mongodb:27017/?directConnection=true
+    depends_on:
+      mongodb:
+        condition: service_healthy
+
+  api:
+    image: ${IMAGE_PREFIX:-ghcr.io/esiegman/mern}-api:${IMAGE_TAG:-latest}
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      PORT: 5000
+      MONGODB_URI: mongodb://${MONGO_APP_USER:-app}:${MONGO_APP_PASSWORD}@mongodb:27017/${MONGO_APP_DB:-app}?directConnection=true
+    depends_on:
+      db-setup:
+        condition: service_completed_successfully
+
+  web:
+    image: ${IMAGE_PREFIX:-ghcr.io/esiegman/mern}-web:${IMAGE_TAG:-latest}
+    restart: unless-stopped
+    environment:
+      SITE_ADDRESS: ${SITE_ADDRESS:-mern.esiegman.dev}
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      - api
+
+volumes:
+  mongo-data:
+  mongo-config:
+  caddy-data:
+  caddy-config:

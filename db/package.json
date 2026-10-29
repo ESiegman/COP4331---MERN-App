@@ -1,0 +1,11 @@
+{
+  "name": "mern-db",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "setup": "node --env-file-if-exists=.env setup.js"
+  },
+  "dependencies": {
+    "mongodb": "^7.7.0"
+  }
+}
