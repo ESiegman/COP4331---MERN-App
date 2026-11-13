@@ -17,81 +17,210 @@ try {
     await db.command({ updateUser: MONGO_APP_USER, pwd: MONGO_APP_PASSWORD, roles });
   }
 
-  // ---- Cards project: collections ----
-const existingCollections = (await db.listCollections({}, { nameOnly: true }).toArray()).map((c) => c.name);
-for (const name of ['users', 'cards']) {
-  if (!existingCollections.includes(name)) await db.createCollection(name);
-}
+// collections for tier list application 
+  const oid = { bsonType: 'objectId' };
+  const visibility = { enum: ['public', 'unlisted', 'private'] };
 
-// ---- Indexes (no-op if they already exist) ----
-await db.collection('users').createIndex({ login: 1 }, { unique: true });
-await db.collection('cards').createIndex({ userId: 1 });
+  const collections = {
+    users: {
+      schema: {
+        bsonType: 'object',
+        required: ['username', 'email', 'emailVerified', 'createdAt'],
+        properties: {
+          username: { bsonType: 'string' },
+          email: { bsonType: 'string' },
+          passwordHash: { bsonType: ['string', 'null'] }, // null for OAuth-only users
+          emailVerified: { bsonType: 'bool' },
+          displayName: { bsonType: 'string' },
+          bio: { bsonType: 'string' },
+          avatarUrl: { bsonType: 'string' },
+          pushTokens: { bsonType: 'array', items: { bsonType: 'string' } },
+          notificationPrefs: {
+            bsonType: 'object',
+            properties: {
+              newComment: { bsonType: 'bool' },
+              newRanking: { bsonType: 'bool' },
+              newLike: { bsonType: 'bool' },
+            },
+          },
+          createdAt: { bsonType: 'date' },
+        },
+      },
+      indexes: [
+        { key: { username: 1 }, unique: true },
+        { key: { email: 1 }, unique: true },
+      ],
+    },
 
-// ---- Starter users (only inserted if the login isn't there yet) ----
-// Placeholder hash, not a real password. These are demo accounts.
-const pw = '$2b$10$placeholderplaceholderplaceholderplaceholderplaceholde';
-const demoUsers = [
-  { login: 'bugsfan',      firstName: 'Alex',   lastName: 'Rivera'   },
-  { login: 'toonmaster',   firstName: 'Jamie',  lastName: 'Chen'     },
-  { login: 'cardshark',    firstName: 'Morgan', lastName: 'Patel'    },
-  { login: 'retrocollect', firstName: 'Sam',    lastName: 'Nguyen'   },
-  { login: 'tunesquad',    firstName: 'Riley',  lastName: 'Johnson'  },
-  { login: 'nakamawave',   firstName: 'Maya',   lastName: 'Thompson' },
-  { login: 'grandlinegk',  firstName: 'Carlos', lastName: 'Mendez'   },
-  { login: 'sunnygo',      firstName: 'Priya',  lastName: 'Sharma'   },
-  { login: 'wanostrike',   firstName: 'Ethan',  lastName: 'Brooks'   },
-  { login: 'bountyhunter', firstName: 'Hannah', lastName: 'Kim'      },
-];
-for (const u of demoUsers) {
-  await db.collection('users').updateOne(
-    { login: u.login },
-    { $setOnInsert: { ...u, password: pw } },
-    { upsert: true },
+    oauthaccounts: {
+      schema: {
+        bsonType: 'object',
+        required: ['userId', 'provider', 'providerUserId'],
+        properties: {
+          userId: oid,
+          provider: { enum: ['google', 'discord'] },
+          providerUserId: { bsonType: 'string' },
+          email: { bsonType: 'string' },
+          linkedAt: { bsonType: 'date' },
+        },
+      },
+      indexes: [
+        { key: { provider: 1, providerUserId: 1 }, unique: true },
+        { key: { userId: 1 } },
+      ],
+    },
+
+    authtokens: {
+      schema: {
+        bsonType: 'object',
+        required: ['userId', 'type', 'tokenHash', 'expiresAt'],
+        properties: {
+          userId: oid,
+          type: { enum: ['verify_email', 'reset_password'] },
+          tokenHash: { bsonType: 'string' },
+          expiresAt: { bsonType: 'date' },
+          usedAt: { bsonType: ['date', 'null'] },
+        },
+      },
+      indexes: [
+        { key: { tokenHash: 1 } },
+        { key: { userId: 1 } },
+        { key: { expiresAt: 1 }, expireAfterSeconds: 0 }, // auto-deletes expired tokens
+      ],
+    },
+
+    templates: {
+      schema: {
+        bsonType: 'object',
+        required: ['ownerId', 'title', 'visibility', 'createdAt'],
+        properties: {
+          ownerId: oid,
+          title: { bsonType: 'string' },
+          description: { bsonType: 'string' },
+          category: { bsonType: 'string' },
+          coverImageUrl: { bsonType: ['string', 'null'] },
+          tierLabels: { bsonType: 'array', items: { bsonType: 'string' } },
+          visibility,
+          rankingCount: { bsonType: 'number' },
+          createdAt: { bsonType: 'date' },
+          updatedAt: { bsonType: 'date' },
+        },
+      },
+      indexes: [
+        { key: { title: 'text', description: 'text', category: 'text' } },
+        { key: { ownerId: 1 } },
+        { key: { visibility: 1, createdAt: -1 } },
+      ],
+    },
+
+    items: {
+      schema: {
+        bsonType: 'object',
+        required: ['templateId', 'name'],
+        properties: {
+          templateId: oid,
+          name: { bsonType: 'string' },
+          imageUrl: { bsonType: ['string', 'null'] },
+          createdAt: { bsonType: 'date' },
+        },
+      },
+      indexes: [{ key: { templateId: 1 } }],
+    },
+
+    rankings: {
+      schema: {
+        bsonType: 'object',
+        required: ['templateId', 'ownerId', 'tiers', 'visibility'],
+        properties: {
+          templateId: oid,
+          ownerId: oid,
+          title: { bsonType: 'string' },
+          tiers: {
+            bsonType: 'array',
+            items: {
+              bsonType: 'object',
+              required: ['label', 'color', 'order', 'itemIds'],
+              properties: {
+                label: { bsonType: 'string' },
+                color: { bsonType: 'string' },
+                order: { bsonType: 'number' },
+                itemIds: { bsonType: 'array', items: oid },
+              },
+            },
+          },
+          visibility,
+          likeCount: { bsonType: 'number' },
+          commentCount: { bsonType: 'number' },
+          publishedAt: { bsonType: ['date', 'null'] },
+          createdAt: { bsonType: 'date' },
+          updatedAt: { bsonType: 'date' },
+        },
+      },
+      indexes: [
+        { key: { templateId: 1, ownerId: 1 }, unique: true }, // one ranking per person per template
+        { key: { ownerId: 1 } },
+        { key: { templateId: 1, visibility: 1 } },
+      ],
+    },
+
+    comments: {
+      schema: {
+        bsonType: 'object',
+        required: ['rankingId', 'authorId', 'body'],
+        properties: {
+          rankingId: oid,
+          authorId: oid,
+          body: { bsonType: 'string' },
+          createdAt: { bsonType: 'date' },
+        },
+      },
+      indexes: [{ key: { rankingId: 1, createdAt: 1 } }],
+    },
+
+    likes: {
+      schema: {
+        bsonType: 'object',
+        required: ['rankingId', 'userId'],
+        properties: {
+          rankingId: oid,
+          userId: oid,
+          createdAt: { bsonType: 'date' },
+        },
+      },
+      indexes: [{ key: { rankingId: 1, userId: 1 }, unique: true }],
+    },
+
+    notifications: {
+      schema: {
+        bsonType: 'object',
+        required: ['recipientId', 'actorId', 'type', 'rankingId', 'read'],
+        properties: {
+          recipientId: oid,
+          actorId: oid,
+          type: { enum: ['new_ranking', 'new_comment', 'new_like'] },
+          rankingId: oid,
+          read: { bsonType: 'bool' },
+          createdAt: { bsonType: 'date' },
+        },
+      },
+      indexes: [{ key: { recipientId: 1, read: 1, createdAt: -1 } }],
+    },
+  };
+
+  const existing = new Set(
+    (await db.listCollections({}, { nameOnly: true }).toArray()).map((c) => c.name),
   );
-}
 
-// ---- Starter cards (only inserted if the character isn't there yet) ----
-const userDocs = await db.collection('users')
-  .find({ login: { $in: demoUsers.map((u) => u.login) } })
-  .toArray();
-const idByLogin = Object.fromEntries(userDocs.map((u) => [u.login, String(u._id)]));
+  for (const [name, { schema, indexes }] of Object.entries(collections)) {
+    const validator = { $jsonSchema: schema };
+    if (existing.has(name)) {
+      await db.command({ collMod: name, validator }); // keeps validators in sync on re-runs
+    } else {
+      await db.createCollection(name, { validator });
+    }
+    await db.collection(name).createIndexes(indexes); // no-op if they already exist
+  }
 
-const cards = [
-  ['Monkey D. Luffy',   'Straw Hat Pirates', 100, 'Bandai'],
-  ['Roronoa Zoro',      'Straw Hat Pirates',  90, 'Bandai'],
-  ['Nami',              'Straw Hat Pirates',  60, 'Topps'],
-  ['Usopp',             'Straw Hat Pirates',  55, 'Topps'],
-  ['Sanji',             'Straw Hat Pirates',  85, 'Bandai'],
-  ['Tony Tony Chopper', 'Straw Hat Pirates',  50, 'Panini'],
-  ['Nico Robin',        'Straw Hat Pirates',  70, 'Panini'],
-  ['Franky',            'Straw Hat Pirates',  58, 'Topps'],
-  ['Brook',             'Straw Hat Pirates',  52, 'Panini'],
-  ['Jinbe',             'Straw Hat Pirates',  75, 'Bandai'],
-  ['Portgas D. Ace',    'Whitebeard Pirates', 88, 'Bandai'],
-  ['Edward Newgate',    'Whitebeard Pirates', 95, 'Bandai'],
-  ['Marco',             'Whitebeard Pirates', 72, 'Topps'],
-  ['Shanks',            'Red Hair Pirates',   92, 'Bandai'],
-  ['Trafalgar Law',     'Heart Pirates',      80, 'Panini'],
-  ['Eustass Kid',       'Kid Pirates',        68, 'Topps'],
-  ['Boa Hancock',       'Kuja Pirates',       74, 'Panini'],
-  ['Dracule Mihawk',    'Cross Guild',        86, 'Bandai'],
-  ['Crocodile',         'Cross Guild',        78, 'Topps'],
-  ['Kaido',             'Beasts Pirates',     96, 'Bandai'],
-  ['Charlotte Linlin',  'Big Mom Pirates',    94, 'Bandai'],
-  ['Blackbeard',        'Blackbeard Pirates', 91, 'Topps'],
-  ['Monkey D. Garp',    'Marines',            82, 'Panini'],
-  ['Sabo',              'Revolutionary Army', 84, 'Bandai'],
-  ['Smoker',            'Marines',            56, 'Topps'],
-];
-for (let i = 0; i < cards.length; i++) {
-  const [playerName, teamName, cardValue, publisher] = cards[i];
-  const owner = demoUsers[i % demoUsers.length].login;
-  await db.collection('cards').updateOne(
-    { playerName },
-    { $setOnInsert: { playerName, teamName, cardValue, publisher, userId: idByLogin[owner] } },
-    { upsert: true },
-  );
-}
 } finally {
   await client.close();
 }
