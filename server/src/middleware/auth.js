@@ -1,30 +1,28 @@
-const jwt = require('jsonwebtoken');
-const { JWT_SECRET, JWT_EXPIRES_IN } = require('../config/auth');
+import { unauthorized } from '../lib/errors.js';
+import { verifyToken } from '../lib/jwt.js';
 
-exports.createToken = (user) =>
-  jwt.sign({ sub: String(user._id) }, JWT_SECRET, { expiresIn: JWT_EXPIRES_IN });
-
-// Protected routes need the header  Authorization: Bearer <token>
-// On success req.userId is the logged-in user's id.
-exports.requireAuth = (req, res, next) => {
-  const [scheme, token] = (req.get('Authorization') || '').split(' ');
-
-  if (scheme !== 'Bearer' || !token) {
-    return res.status(401).json({ error: 'Authentication required' });
-  }
+// Clients send the token from login as:  Authorization: Bearer <token>
+async function readUserId(req) {
+  const [scheme, token] = (req.get('Authorization') ?? '').split(' ');
+  if (scheme !== 'Bearer' || !token) return null;
 
   try {
-    req.userId = jwt.verify(token, JWT_SECRET).sub;
-    next();
+    return await verifyToken(token);
   } catch {
-    return res.status(401).json({ error: 'Invalid or expired token' });
+    throw unauthorized('Invalid or expired token');
   }
-};
+}
 
-// For /api/users/:userId routes. Run after requireAuth.
-exports.requireSelf = (req, res, next) => {
-  if (req.params.userId !== req.userId) {
-    return res.status(403).json({ error: 'You can only access your own account' });
-  }
+// For routes guests can use. req.userId is the caller's id, or null for a guest.
+export async function optionalAuth(req, res, next) {
+  req.userId = await readUserId(req);
   next();
-};
+}
+
+// For routes that need an account. Checks like "is this my ranking?" belong in the service,
+// which has the document in hand.
+export async function requireAuth(req, res, next) {
+  req.userId = await readUserId(req);
+  if (!req.userId) throw unauthorized();
+  next();
+}

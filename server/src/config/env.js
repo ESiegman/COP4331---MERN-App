@@ -1,0 +1,31 @@
+import { z } from 'zod';
+
+// Every environment variable the API reads is declared here and checked once at startup,
+// so a missing or malformed value stops the server with a clear message instead of failing later.
+const schema = z
+  .object({
+    NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
+    PORT: z.coerce.number().int().min(1).max(65535).default(5001),
+    MONGODB_URI: z.string().min(1).optional(),
+    JWT_SECRET: z.string({ error: 'is required' }).min(1, 'is required'),
+    JWT_EXPIRES_IN: z.string().default('7d'),
+    // Where the web app is served. Verification and password reset emails link to it.
+    APP_URL: z
+      .url()
+      .default('http://localhost:5173')
+      .transform((url) => url.replace(/\/$/, '')),
+  })
+  // Tests that never touch the database can run without one
+  .refine((vars) => vars.NODE_ENV === 'test' || vars.MONGODB_URI, {
+    path: ['MONGODB_URI'],
+    message: 'is required',
+  });
+
+const result = schema.safeParse(process.env);
+
+if (!result.success) {
+  const problems = result.error.issues.map((issue) => `  ${issue.path.join('.')}: ${issue.message}`);
+  throw new Error(`Invalid environment variables:\n${problems.join('\n')}`);
+}
+
+export const env = Object.freeze(result.data);
