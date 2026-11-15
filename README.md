@@ -65,6 +65,14 @@ No email is sent yet. When you register locally, the verification link is writte
 docker compose logs api
 ```
 
+To fill the database with sample accounts, templates, rankings, likes and comments to try things with (password `tierlist-dev` for every account):
+
+```sh
+docker compose run --rm --build db-setup node seed.js
+```
+
+[db/README.md](db/README.md#sample-data) explains what it adds and how to take it out again.
+
 ## API
 
 All requests and responses are JSON. See [server/README.md](server/README.md) for the full reference, with request and response examples for each endpoint.

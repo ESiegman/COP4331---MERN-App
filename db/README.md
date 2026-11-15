@@ -47,6 +47,48 @@ flowchart LR
     E --> F[(Production database matches)]
 ```
 
+## Sample data
+
+`db/seed.js` fills the database with sample data for trying the app by hand. It never runs on its own: deploys only run `setup.js`.
+
+With the dev stack running (`docker compose up`):
+
+```sh
+docker compose run --rm --build db-setup node seed.js
+```
+
+`--build` is needed the first time, because the script uses a package that older db images don't have. Running it again replaces the sample data with a fresh copy. To take it out:
+
+```sh
+docker compose run --rm db-setup node seed.js --remove
+```
+
+Every sample account's email ends in `@seed.example.com`, and the password is `tierlist-dev`. The script prints the accounts and the links to the cases below.
+
+| What | Includes |
+| --- | --- |
+| 7 accounts | Different notification settings, one with no display name, and one that hasn't verified its email, so its login answers `403` |
+| 10 templates | One with its own tier labels instead of S to F, one nobody has ranked, one unlisted, one private |
+| 29 rankings | Two drafts, a private one, an unlisted one, hot takes, one with an extra "God tier", one with only four tiers. People mostly agree, so the community rankings have a clear top and bottom |
+| Likes, comments, notifications | Comments mention the items in the ranking, and owners sometimes reply. Notifications follow the same rules as the API, and the older ones are marked read |
+
+How it behaves:
+
+- **It only touches sample data.** That is everything the sample accounts own or wrote. Removing it also removes what hangs off it (other people's rankings of sample templates, and their likes and comments on sample rankings), and fixes the counters on anything else the sample accounts liked, commented on or ranked.
+- **Links keep working.** Ids are the same on every run and start with `5eed`. Dates are counted back from now, so the data always looks recent.
+- **All or nothing.** It runs in one transaction, so if anything fails the database is left as it was.
+- **It won't take a real account's username.** If someone has already registered one of the sample usernames, it stops and says which.
+
+To have demo data on the live site, run it on the droplet once a deploy has included `seed.js`, with a password of your own. The default one is written here, so anyone could log in to the sample accounts with it:
+
+```sh
+ssh deploy@mern.esiegman.dev
+cd /opt/mern
+docker compose run --rm -e SEED_PASSWORD='<a password>' db-setup node seed.js
+```
+
+The same command with `--remove` at the end takes it out again.
+
 ## 1. Connect to your local database
 
 Start the stack from the repo root:
@@ -107,7 +149,7 @@ The loop at the bottom of the file does the rest: it creates the collection if i
 
 To add a field to an existing collection, add it under that collection's `properties`. To add an index, add it to that collection's `indexes`.
 
-Starter data goes after the loop, written so that it is only inserted once:
+Starter data goes after the loop, written so that it is only inserted once. This is for data production needs on every deploy; sample data for testing belongs in `seed.js` (see [Sample data](#sample-data)).
 
 ```js
 await db.collection('users').updateOne(

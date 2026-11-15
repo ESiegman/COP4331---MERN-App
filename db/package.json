@@ -3,9 +3,11 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "setup": "node --env-file-if-exists=.env setup.js"
+    "setup": "node --env-file-if-exists=.env setup.js",
+    "seed": "node --env-file-if-exists=.env seed.js"
   },
   "dependencies": {
+    "bcryptjs": "^3.0.3",
     "mongodb": "^7.7.0"
   }
 }

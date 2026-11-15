@@ -1037,7 +1037,9 @@ Without a database this runs the tests that never touch one: validation, tokens,
 MONGODB_URI='mongodb://app:apppassword@localhost:27017/app?directConnection=true' npm test
 ```
 
-Those tests create their own users with random names and delete everything they made afterwards.
+Those tests create their own users with random names and delete everything they made afterwards, so they also pass with the sample data from [db/README.md](../db/README.md#sample-data) in the database, and leave it alone.
+
+For trying the API by hand rather than in tests, the sample data gives you accounts to log in as and content in every state: drafts, private and unlisted content, custom tiers, comment threads and notifications.
 
 | File | Covers |
 | --- | --- |
