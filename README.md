@@ -1,17 +1,38 @@
 # COP4331 MERN App
 
-MongoDB, Express, React, and Node, running in Docker. Production is at https://mern.esiegman.dev.
+A tier list app: make a template of things to rank, rank them from S to F, share your list, and see how everyone else ranked the same thing. MongoDB, Express, React, and Node, running in Docker. Production is at https://mern.esiegman.dev.
 
 ## Project layout
 
 - `client/` - React app (Vite). In production it's served by Caddy, which also proxies `/api` to the server and handles HTTPS.
-- `server/` - Express API.
-- `db/` - `setup.js` creates the app's database user. It runs before the API starts, on every deploy. See [db/README.md](db/README.md) for setting up collections.
+- `server/` - Express API. See [server/README.md](server/README.md) for how it is built and every endpoint.
+- `db/` - `setup.js` creates the app's database user, its collections, and their validation rules and indexes. It runs before the API starts, on every deploy. See [db/README.md](db/README.md) for changing collections.
 - `compose.yaml` - local dev.
 - `compose.prod.yaml` - production, copied to the droplet by the deploy workflow.
 - `deploy/bootstrap-droplet.sh` - one-time droplet setup.
 
 The database is MongoDB Atlas Local (`mongodb/mongodb-atlas-local`), MongoDB's Docker image of Atlas.
+
+## How it fits together
+
+```mermaid
+flowchart LR
+    B[Browser] -- HTTPS --> W
+
+    subgraph Droplet["Droplet: mern.esiegman.dev"]
+        W["web (Caddy)<br/>ports 80, 443"]
+        API["api (Express)<br/>port 5001"]
+        M[("mongodb<br/>Atlas Local")]
+        S["db-setup<br/>runs on each deploy"]
+
+        W -- "/api/*" --> API
+        W -- "everything else" --> R[React build]
+        API -- Mongoose --> M
+        S -- "creates user, collections, indexes" --> M
+    end
+```
+
+The browser only talks to Caddy. Caddy serves the React build and forwards anything under `/api` to Express, which is the only thing that talks to MongoDB. In local dev, the Vite dev server does Caddy's job of forwarding `/api`.
 
 ## Local development
 
@@ -36,27 +57,31 @@ cd server && npm install && npm run dev
 cd client && npm install && npm run dev
 ```
 
-Run the server tests with `cd server && npm test`.
+Run the server tests with `cd server && npm test`. The tests that need a database are skipped unless `MONGODB_URI` is set; [server/README.md](server/README.md#tests) shows how to run them against the dev stack.
+
+No email is sent yet. When you register locally, the verification link is written to the API log instead:
+
+```sh
+docker compose logs api
+```
 
 ## API
 
-All requests and responses are JSON.
+All requests and responses are JSON. See [server/README.md](server/README.md) for the full reference, with request and response examples for each endpoint.
 
-| Method | Path | Body | Success | Errors |
-| --- | --- | --- | --- | --- |
-| POST | `/api/users` | `firstName`, `lastName`, `login`, `password`, `email` | 201 `{ message, token, user }` | 400 missing login or password, 409 login taken |
-| POST | `/api/auth/login` | `login`, `password` | 200 `{ token, user }` | 400 missing fields, 401 wrong login or password |
-| GET | `/api/users/:userId` | | 200 user | 401, 403, 404 |
-| GET | `/api/users/:userId/cards?search=` | | 200 array of cards | 401, 403 |
-| POST | `/api/users/:userId/cards` | `playerName`, `teamName`, `cardValue`, `publisher`, `card` | 201 card | 400 invalid fields, 401, 403 |
-| GET | `/api/cards/:cardId` | | 200 card | 401, 403, 404 |
-| PUT | `/api/cards/:cardId` | any card fields | 200 updated card | 400, 401, 403, 404 |
-| DELETE | `/api/cards/:cardId` | | 200 `{ message }` | 401, 403, 404 |
-| GET | `/api/health` | | 200 `{ status: "ok" }` | |
+| Area | Under | What it covers |
+| --- | --- | --- |
+| Auth | `/api/auth` | Register, verify email, log in, reset password |
+| Users | `/api/users` | Your account and notification settings, public profiles |
+| Templates | `/api/templates` | The things to rank and their items, search, the community ranking |
+| Rankings | `/api/rankings` | A person's tier list for a template, the feed, likes |
+| Comments | `/api/rankings/:rankingId/comments`, `/api/comments` | Comments on a ranking |
+| Notifications | `/api/notifications` | Who ranked, liked or commented on your content |
+| Health | `/api/health` | Health check |
 
-Everything except register, login, and health needs the token from login or register in an `Authorization: Bearer <token>` header. A user can only reach their own account and cards: 401 means no token or a bad one, 403 means someone else's data. A malformed id returns 400. `search` matches `playerName` or `teamName`, ignoring case.
+Browsing, searching and viewing public templates and rankings needs no account. Everything else needs the token from logging in, sent as `Authorization: Bearer <token>`. A new account has to verify its email before it can log in.
 
-Passwords are hashed with bcrypt and never returned. The code is in `server/src`: routes in `routes/`, handlers in `controllers/`, the `User` and `Card` models in `models/`, and the token checks in `middleware/auth.js`.
+A few routes that depend on outside services (Google and Discord login, AI suggestions, image uploads) are not built yet. The Status section of [server/README.md](server/README.md#status) lists them.
 
 ## Deployment
 
@@ -67,6 +92,21 @@ Pushing to `main` runs `.github/workflows/deploy.yml`:
 3. Builds the changed images and pushes them to `ghcr.io/esiegman/mern-db`, `mern-api`, and `mern-web`.
 4. SSHes into the droplet, copies the API source to `/opt/mern/server`, pulls the new images, and runs `docker compose up -d`. Only changed containers restart.
 5. Checks that https://mern.esiegman.dev/api/health responds.
+
+```mermaid
+flowchart TD
+    P[Push to main] --> C[Detect changed folders]
+    C --> T[Server tests and client build]
+    T -- pull request --> Stop[Stop]
+    T -- push to main --> Bd[Build changed images]
+    Bd --> G[(GitHub Container Registry)]
+    G --> D[SSH to droplet]
+    D --> U[Copy compose file and API source]
+    U --> Up[docker compose pull and up -d]
+    Up --> H{"/api/health returns 200?"}
+    H -- yes --> OK[Done]
+    H -- no --> F[Fail and print container logs]
+```
 
 You can also redeploy everything from the Actions tab with "Run workflow".
 
@@ -104,7 +144,7 @@ docker compose ps
 docker compose logs -f api
 ```
 
-The API source is at `/opt/mern/server` (for example `vi /opt/mern/server/src/controllers/authController.js`). It's a copy updated on every deploy; the running container uses the image built from the same commit.
+The API source is at `/opt/mern/server` (for example `vi /opt/mern/server/src/modules/auth/auth.service.js`). It's a copy updated on every deploy; the running container uses the image built from the same commit.
 
 MongoDB only listens on the droplet itself. To open it in Compass, tunnel in over SSH first:
 
