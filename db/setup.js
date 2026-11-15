@@ -211,6 +211,14 @@ try {
     (await db.listCollections({}, { nameOnly: true }).toArray()).map((c) => c.name),
   );
 
+  // one-time cleanup of the old cards project: its users have no username (breaks the
+  // unique username index) and its unique login index breaks every sign-up after the first
+  if (existing.has('cards')) await db.collection('cards').drop();
+  if (existing.has('users')) {
+    await db.collection('users').deleteMany({ username: { $exists: false } });
+    if (await db.collection('users').indexExists('login_1')) await db.collection('users').dropIndex('login_1');
+  }
+
   for (const [name, { schema, indexes }] of Object.entries(collections)) {
     const validator = { $jsonSchema: schema };
     if (existing.has(name)) {
