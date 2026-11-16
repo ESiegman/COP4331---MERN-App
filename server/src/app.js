@@ -1,18 +1,25 @@
-const express = require('express');
-const morgan = require('morgan');
-const apiRouter = require('./routes');
-const { notFound, errorHandler } = require('./middleware/errorHandler');
+import express from 'express';
+import helmet from 'helmet';
+import { env } from './config/env.js';
+import { httpLogger } from './lib/logger.js';
+import { errorHandler, notFound } from './middleware/errorHandler.js';
+import routes from './routes.js';
 
-const app = express();
+// Builds the Express app without starting it, so tests can drive it directly
+export function createApp() {
+  const app = express();
 
-if (process.env.NODE_ENV !== 'test') {
-  app.use(morgan('dev'));
+  // In production Caddy sits in front, so the real client address is one proxy hop away
+  app.set('trust proxy', env.NODE_ENV === 'production' ? 1 : false);
+
+  app.use(helmet());
+  app.use(httpLogger);
+  app.use(express.json({ limit: '100kb' }));
+
+  app.use('/api', routes);
+
+  app.use(notFound);
+  app.use(errorHandler);
+
+  return app;
 }
-app.use(express.json());
-
-app.use('/api', apiRouter);
-
-app.use(notFound);
-app.use(errorHandler);
-
-module.exports = app;

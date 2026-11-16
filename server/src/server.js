@@ -1,0 +1,25 @@
+import { createApp } from './app.js';
+import { env } from './config/env.js';
+import { connectDb, disconnectDb } from './lib/db.js';
+import { logger } from './lib/logger.js';
+
+// A failed connection rejects here, which stops the process with the error and exit code 1
+await connectDb();
+logger.info('Connected to MongoDB');
+
+const server = createApp().listen(env.PORT, (err) => {
+  if (err) throw err;
+  logger.info(`API listening on port ${env.PORT}`);
+});
+
+// Docker sends SIGTERM on every deploy: finish the requests in flight, then close the database
+for (const signal of ['SIGINT', 'SIGTERM']) {
+  process.once(signal, () => {
+    logger.info(`${signal} received, shutting down`);
+    server.close(async () => {
+      await disconnectDb();
+      process.exit(0);
+    });
+    server.closeIdleConnections();
+  });
+}
