@@ -1,16 +1,39 @@
 :root {
-  font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans", sans-serif;
+  --ink: #15171e;
+  --ink-soft: #5a5f70;
+  --paper: #eef0f5;
+  --surface: #ffffff;
+  --line: #dcdfe8;
+  --accent: #3b4cf2;
+  --accent-dark: #2a38c4;
+  --tier-s: #ff7f7f;
+  --tier-a: #ffbf7f;
+  --tier-b: #ffdf7f;
+  --tier-c: #ffff7f;
+  --tier-d: #bfff7f;
+  --tier-f: #7fbfff;
+
+  font-family: "Bricolage Grotesque", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   line-height: 1.5;
-  font-weight: 400;
-  color: #212529;
-  background-color: #f8f9fa;
+  color: var(--ink);
+  background-color: var(--paper);
+
+  /* Point Bootstrap's primary color at our accent */
+  --bs-primary: var(--accent);
+  --bs-primary-rgb: 59, 76, 242;
+  --bs-link-color: var(--accent);
+  --bs-link-hover-color: var(--accent-dark);
+  --bs-body-font-family: inherit;
+  --bs-body-color: var(--ink);
+  --bs-body-bg: var(--paper);
+  --bs-border-color: var(--line);
 }
 
 body {
   margin: 0;
   min-height: 100vh;
-  background-color: #f8f9fa;
-  color: #212529;
+  background-color: var(--paper);
+  color: var(--ink);
 }
 
 #root {
@@ -19,26 +42,41 @@ body {
   flex-direction: column;
 }
 
-/* Ensure focus states meet WCAG accessibility requirements */
+h1, h2, h3, h4 {
+  font-weight: 800;
+  letter-spacing: -0.02em;
+}
+
+.btn-primary {
+  --bs-btn-bg: var(--accent);
+  --bs-btn-border-color: var(--accent);
+  --bs-btn-hover-bg: var(--accent-dark);
+  --bs-btn-hover-border-color: var(--accent-dark);
+  --bs-btn-active-bg: var(--accent-dark);
+  --bs-btn-active-border-color: var(--accent-dark);
+  --bs-btn-disabled-bg: var(--accent);
+  --bs-btn-disabled-border-color: var(--accent);
+  font-weight: 600;
+}
+
+.btn-outline-primary {
+  --bs-btn-color: var(--accent);
+  --bs-btn-border-color: var(--accent);
+  --bs-btn-hover-bg: var(--accent);
+  --bs-btn-hover-border-color: var(--accent);
+  --bs-btn-active-bg: var(--accent-dark);
+  font-weight: 600;
+}
+
+/* Keyboard focus must always be visible */
 :focus-visible {
-  outline: 3px solid #0d6efd !important;
+  outline: 3px solid var(--accent) !important;
   outline-offset: 2px !important;
 }
 
-.btn:focus-visible, .form-control:focus-visible {
-  box-shadow: 0 0 0 0.25rem rgba(13, 110, 253, 0.35) !important;
-}
-
-.card {
-  border: 1px solid rgba(0, 0, 0, 0.08);
-  transition: transform 0.2s ease, box-shadow 0.2s ease;
-}
-
-.card:hover {
-  box-shadow: 0 0.5rem 1rem rgba(0, 0, 0, 0.08) !important;
-}
-
-.badge-custom {
-  font-size: 0.85rem;
-  padding: 0.4em 0.75em;
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+  }
 }
