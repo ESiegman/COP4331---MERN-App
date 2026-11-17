@@ -171,9 +171,11 @@ describe('profiles, push tokens, comments and notifications against a real datab
   test('only the author can edit a comment', async () => {
     assert.equal((await api('patch', `/comments/${evesComment._id}`, 'bob', { body: 'Hijacked' })).status, 403);
 
+    assert.equal(evesComment.updatedAt, evesComment.createdAt, 'a new comment is not edited');
     const edited = await api('patch', `/comments/${evesComment._id}`, 'eve', { body: 'Chips in A tier, on reflection.' });
     assert.equal(edited.status, 200);
     assert.equal(edited.body.body, 'Chips in A tier, on reflection.');
+    assert.ok(new Date(edited.body.updatedAt) > new Date(edited.body.createdAt), 'an edited comment shows it');
     assert.equal(edited.body.author.username, users.eve.username);
 
     assert.equal((await api('patch', `/comments/${bobs._id}`, 'eve', { body: 'x' })).status, 404);

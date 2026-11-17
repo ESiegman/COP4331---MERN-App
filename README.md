@@ -59,7 +59,7 @@ cd client && npm install && npm run dev
 
 Run the server tests with `cd server && npm test`. The tests that need a database are skipped unless `MONGODB_URI` is set; [server/README.md](server/README.md#tests) shows how to run them against the dev stack.
 
-No email is sent yet. When you register locally, the verification link is written to the API log instead:
+Unless `SMTP_URL` is set, no email is sent. When you register locally, the verification link is written to the API log instead:
 
 ```sh
 docker compose logs api
@@ -89,7 +89,7 @@ All requests and responses are JSON. See [server/README.md](server/README.md) fo
 
 Browsing, searching and viewing public templates and rankings needs no account. Everything else needs the token from logging in, sent as `Authorization: Bearer <token>`. A new account has to verify its email before it can log in.
 
-A few routes that depend on outside services (Google and Discord login, AI suggestions, image uploads) are not built yet. The Status section of [server/README.md](server/README.md#status) lists them.
+A few routes that depend on outside services (Google and Discord login, image uploads) are not built yet. The Status section of [server/README.md](server/README.md#status) lists them, along with the settings that email, push and AI suggestions need.
 
 ## Deployment
 
@@ -140,6 +140,15 @@ This only has to be done once.
    | `DEPLOY_USER` | `deploy` |
    | `DEPLOY_SSH_KEY` | contents of `~/.ssh/mern_deploy` |
    | `DEPLOY_KNOWN_HOSTS` | output of `ssh-keyscan mern.esiegman.dev` |
+5. So the site can send verification and password reset emails, add your email provider's SMTP details to `/opt/mern/.env`, then restart the API:
+   ```sh
+   SMTP_URL=smtps://USER:PASSWORD@smtp.example.com:465
+   EMAIL_FROM=Tier List <no-reply@esiegman.dev>
+   ```
+   ```sh
+   cd /opt/mern && docker compose up -d api
+   ```
+   Most providers only send from a domain you have verified with them, which means adding the DNS records they give you.
 
 Atlas Local needs a fair amount of memory, so use a droplet with at least 2 GB.
 

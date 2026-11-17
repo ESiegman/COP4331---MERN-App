@@ -1,31 +1,42 @@
 import { KEEP_UPDATED_AT, withTransaction } from '../../lib/db.js';
 import { badRequest, forbidden, notFound } from '../../lib/errors.js';
 import { findPage } from '../../lib/pagination.js';
-import { canView, isOwner, shareUrl } from '../../lib/sharedContent.js';
+import { effectiveVisibility, isOwner, shareUrl } from '../../lib/sharedContent.js';
 import {
   Comment, DEFAULT_TIER_COLORS, Item, Like, Notification, Ranking, Template,
 } from '../../models/index.js';
 import { notify } from '../notifications/notifications.service.js';
-import { findViewableTemplate } from '../templates/templates.service.js';
+import { findViewableTemplate, recountRankings } from '../templates/templates.service.js';
 import { findPublicProfiles } from '../users/users.service.js';
 
 // RankingService from the class diagram, plus Ranking.like and the feed.
 // saveRanking follows the "Publish a ranking" sequence diagram step by step.
 // A ranking with publishedAt === null is a draft, and only its owner can see it.
+// A ranking is also never more visible than its template (see effectiveVisibility).
 
-// What lists, feeds and the community ranking count: rankings everyone can see
+// Published rankings set to public: what a template's page, the community ranking and
+// Template.rankingCount count
 const PUBLISHED = { visibility: 'public', publishedAt: { $ne: null } };
 
 const colorAt = (position) => DEFAULT_TIER_COLORS[position % DEFAULT_TIER_COLORS.length];
 
-// A ranking that is private, or still a draft, answers 404 to everyone but its owner
+// Rankings of unlisted and private templates stay out of the feed and profile lists, since
+// listing them would reveal the template. Usually a short list.
+const hiddenTemplateIds = () => Template.find({ visibility: { $ne: 'public' } }).distinct('_id');
+
+// A ranking that is private, a draft, or ranks a private template answers 404 to everyone
+// but its owner. The owner always sees their own.
 export async function findViewableRanking(viewerId, rankingId) {
   const ranking = await Ranking.findById(rankingId);
-  const visible =
-    ranking && canView(ranking, viewerId) && (ranking.publishedAt || isOwner(ranking, viewerId));
+  if (!ranking) throw notFound('Ranking');
+  if (isOwner(ranking, viewerId)) return ranking;
+
+  const template = await Template.findById(ranking.templateId).select('visibility').lean();
+  const visible = ranking.publishedAt && template && effectiveVisibility(ranking, template) !== 'private';
   if (!visible) throw notFound('Ranking');
   return ranking;
 }
+
 
 async function findOwnRanking(userId, rankingId) {
   const ranking = await findViewableRanking(userId, rankingId);
@@ -52,24 +63,28 @@ async function withSummaries(page) {
 }
 
 // GET /rankings  (Browse tier lists)
-// db/setup.js has no index for this yet: { visibility: 1, publishedAt: -1 } on rankings would fit.
 export async function listFeed({ sort, cursor, limit }) {
   const sortBy = sort === 'top' ? 'likeCount' : 'publishedAt';
-  return withSummaries(await findPage(Ranking, PUBLISHED, { sortBy, cursor, limit }));
+  const filter = { ...PUBLISHED, templateId: { $nin: await hiddenTemplateIds() } };
+  return withSummaries(await findPage(Ranking, filter, { sortBy, cursor, limit }));
 }
 
 // GET /users/:username/rankings
-// Everyone sees the owner's public, published rankings. The owner also sees their drafts
-// and private ones.
+// Everyone sees the owner's public, published rankings of public templates. The owner also
+// sees their drafts and private ones.
 export async function listByOwner(owner, viewerId, { cursor, limit }) {
   const viewerIsOwner = String(owner._id) === String(viewerId);
-  const filter = viewerIsOwner ? { ownerId: owner._id } : { ownerId: owner._id, ...PUBLISHED };
+  const filter = viewerIsOwner
+    ? { ownerId: owner._id }
+    : { ownerId: owner._id, ...PUBLISHED, templateId: { $nin: await hiddenTemplateIds() } };
   return withSummaries(await findPage(Ranking, filter, { sortBy: 'createdAt', cursor, limit }));
 }
 
 // GET /templates/:templateId/rankings
+// Rankings of a private template are private too, so that list is always empty.
 export async function listForTemplate(viewerId, templateId, { cursor, limit }) {
   const template = await findViewableTemplate(viewerId, templateId);
+  if (template.visibility === 'private') return { items: [], nextCursor: null };
   const filter = { templateId: template._id, ...PUBLISHED };
   return withSummaries(await findPage(Ranking, filter, { sortBy: 'publishedAt', cursor, limit }));
 }
@@ -93,7 +108,9 @@ export function spreadOverTiers(scores, tierLabels) {
 // tier.order / (number of tiers - 1). That is averaged per item across all rankings.
 export async function communityRanking(viewerId, templateId) {
   const template = await findViewableTemplate(viewerId, templateId);
+  // Rankings of a private template are private, so there is nothing to average
   const match = { templateId: template._id, ...PUBLISHED };
+  if (template.visibility === 'private') match._id = { $in: [] };
 
   const [scores, rankingCount] = await Promise.all([
     Ranking.aggregate([
@@ -180,17 +197,15 @@ export async function saveRanking(userId, rankingId, { title, tiers, visibility,
   const sendPush = await withTransaction(async () => {
     // 6. Save tiers, set publishedAt
     await ranking.save();
+    if (!ranking.publishedAt) return null;
+
+    // 7. Recount Template.rankingCount (a published ranking may also have changed visibility)
+    await recountRankings(ranking.templateId);
     if (!firstPublish) return null;
 
-    // 7. Increment Template.rankingCount
-    const template = await Template.findByIdAndUpdate(
-      ranking.templateId,
-      { $inc: { rankingCount: 1 } },
-      KEEP_UPDATED_AT,
-    );
-
     // 8-9. Notify the template's owner, unless they could not open the ranking anyway
-    if (visibility === 'private') return null;
+    const template = await Template.findById(ranking.templateId).select('ownerId visibility').lean();
+    if (effectiveVisibility(ranking, template) === 'private') return null;
     return notify(template.ownerId, userId, 'new_ranking', ranking._id);
   });
 
@@ -210,9 +225,7 @@ export async function deleteRanking(userId, rankingId) {
     await Notification.deleteMany({ rankingId: ranking._id });
     await ranking.deleteOne();
 
-    if (ranking.publishedAt) {
-      await Template.updateOne({ _id: ranking.templateId }, { $inc: { rankingCount: -1 } }, KEEP_UPDATED_AT);
-    }
+    if (ranking.publishedAt) await recountRankings(ranking.templateId);
   });
 }
 

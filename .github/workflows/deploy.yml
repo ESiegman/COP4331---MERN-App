@@ -44,6 +44,20 @@ jobs:
   test:
     needs: changes
     runs-on: ubuntu-latest
+    # A throwaway MongoDB, the same image production runs, so the API's database tests run too
+    services:
+      mongodb:
+        image: mongodb/mongodb-atlas-local:8.0
+        env:
+          MONGODB_INITDB_ROOT_USERNAME: root
+          MONGODB_INITDB_ROOT_PASSWORD: ci-password
+        ports:
+          - 27017:27017
+    env:
+      MONGO_ROOT_URI: mongodb://root:ci-password@localhost:27017/?directConnection=true
+      MONGO_APP_DB: app
+      MONGO_APP_USER: app
+      MONGO_APP_PASSWORD: ci-password
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -52,20 +66,32 @@ jobs:
           cache: npm
           cache-dependency-path: '*/package-lock.json'
 
+      # Runs setup.js for real, the way a deploy does, then adds and removes the sample data
+      # to check seed.js still fits the validators
+      - name: Database setup
+        if: needs.changes.outputs.api == 'true' || needs.changes.outputs.db == 'true'
+        working-directory: db
+        run: |
+          npm ci
+          for attempt in $(seq 1 40); do
+            node setup.js && break
+            if [ "$attempt" = 40 ]; then echo "db/setup.js never succeeded"; exit 1; fi
+            echo "MongoDB not ready yet, retrying"; sleep 3
+          done
+          node seed.js
+          node seed.js --remove
+
       - name: API tests
-        if: needs.changes.outputs.api == 'true'
+        if: needs.changes.outputs.api == 'true' || needs.changes.outputs.db == 'true'
         working-directory: server
+        env:
+          MONGODB_URI: mongodb://app:ci-password@localhost:27017/app?directConnection=true
         run: npm ci && npm test
 
       - name: Client build
         if: needs.changes.outputs.web == 'true'
         working-directory: client
         run: npm ci && npm run build
-
-      - name: DB setup syntax check
-        if: needs.changes.outputs.db == 'true'
-        working-directory: db
-        run: npm ci && node --check setup.js
 
   build:
     needs: [changes, test]

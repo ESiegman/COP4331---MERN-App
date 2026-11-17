@@ -6,7 +6,8 @@ const commentSchema = new mongoose.Schema(
     authorId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
     body: { type: String, required: true, trim: true },
   },
-  { collection: 'comments', versionKey: false, timestamps: { createdAt: true, updatedAt: false } },
+  // updatedAt starts equal to createdAt and moves when the author edits the comment
+  { collection: 'comments', versionKey: false, timestamps: true },
 );
 
 export const Comment = mongoose.model('Comment', commentSchema);

@@ -27,10 +27,10 @@ erDiagram
 | `users` | Accounts, with their notification switches and push tokens | `username`, and `email` |
 | `oauthaccounts` | Google and Discord logins linked to a user | `provider` + `providerUserId` |
 | `authtokens` | One-time tokens behind email verification and password reset links. MongoDB deletes them once `expiresAt` has passed | |
-| `templates` | The things being ranked, like "Gas station snacks". Has the text index that search uses | |
+| `templates` | The things being ranked, like "Gas station snacks" | |
 | `items` | What gets ranked inside a template | |
 | `rankings` | One person's tier list for a template. Its tiers are stored inside it | `templateId` + `ownerId` |
-| `comments` | Comments on a ranking | |
+| `comments` | Comments on a ranking. `updatedAt` moves past `createdAt` when one is edited | |
 | `likes` | One like per user per ranking | `rankingId` + `userId` |
 | `notifications` | "Someone ranked, liked or commented on your content" | |
 
