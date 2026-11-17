@@ -11,7 +11,7 @@ import { apiFetch } from "../utils/api";
 import { useAuth } from "../utils/useAuth";
 import { useConfirm } from "../utils/useConfirm";
 import { formatDate, nameOf } from "../utils/format";
-import type { Item, Ranking, Tier, TemplateDetail } from "../utils/types";
+import type { Item, Ranking, Template, Tier, TemplateDetail, Visibility } from "../utils/types";
 import { usePagedList } from "../utils/usePagedList";
 
 function TemplatePage() {
@@ -29,6 +29,18 @@ function TemplatePage() {
   // Owner tools
   const [newName, setNewName] = useState("");
   const [newImage, setNewImage] = useState("");
+
+  // Editing the template's details, and renaming one item at a time
+  const [editing, setEditing] = useState(false);
+  const [form, setForm] = useState<{ title: string; description: string; category: string; visibility: Visibility }>({
+    title: "",
+    description: "",
+    category: "",
+    visibility: "public",
+  });
+  const [editingItemId, setEditingItemId] = useState<string | null>(null);
+  const [itemName, setItemName] = useState("");
+  const [itemImage, setItemImage] = useState("");
 
   const rankings = usePagedList<Ranking>(templateId ? `api/templates/${templateId}/rankings` : null, 6);
 
@@ -87,6 +99,60 @@ function TemplatePage() {
     }
   }
 
+  function startEditing() {
+    if (!detail) return;
+    const t = detail.template;
+    setForm({ title: t.title, description: t.description ?? "", category: t.category ?? "", visibility: t.visibility });
+    setEditing(true);
+  }
+
+  async function saveTemplate(e: FormEvent) {
+    e.preventDefault();
+    setBusy(true);
+    setError("");
+    const res = await apiFetch<Template>(`api/templates/${templateId}`, {
+      method: "PATCH",
+      body: {
+        title: form.title.trim(),
+        description: form.description.trim(),
+        category: form.category.trim(),
+        visibility: form.visibility,
+      },
+    });
+    setBusy(false);
+    if (res.ok) {
+      // Keep the owner and the other fields the PATCH answer does not repeat
+      setDetail((d) => (d ? { ...d, template: { ...d.template, ...res.data } } : d));
+      setEditing(false);
+    } else {
+      setError(res.error ?? "Could not save the template");
+    }
+  }
+
+  function startEditItem(item: Item) {
+    setEditingItemId(item._id);
+    setItemName(item.name);
+    setItemImage(item.imageUrl ?? "");
+  }
+
+  async function saveItem(e: FormEvent) {
+    e.preventDefault();
+    if (!editingItemId) return;
+    setBusy(true);
+    setError("");
+    const res = await apiFetch<Item>(`api/templates/${templateId}/items/${editingItemId}`, {
+      method: "PATCH",
+      body: { name: itemName.trim(), imageUrl: itemImage.trim() || null },
+    });
+    setBusy(false);
+    if (res.ok) {
+      setDetail((d) => (d ? { ...d, items: d.items.map((i) => (i._id === res.data._id ? res.data : i)) } : d));
+      setEditingItemId(null);
+    } else {
+      setError(res.error ?? "Could not save the item");
+    }
+  }
+
   async function removeItem(itemId: string) {
     if (!(await confirm({ title: "Remove item?", message: "It will also come out of every ranking.", confirmLabel: "Remove" }))) return;
     const res = await apiFetch<null>(`api/templates/${templateId}/items/${itemId}`, { method: "DELETE" });
@@ -136,6 +202,11 @@ function TemplatePage() {
           </div>
         </div>
         <div className="d-flex gap-2">
+          {isOwner && !editing && (
+            <button type="button" className="btn btn-sm btn-outline-secondary" onClick={startEditing}>
+              <i className="bi bi-pencil me-1" aria-hidden="true"></i>Edit
+            </button>
+          )}
           <ShareButton url={detail.shareUrl} />
           <button type="button" className="btn btn-primary" onClick={startRanking} disabled={busy || items.length === 0}>
             Rank this
@@ -144,6 +215,38 @@ function TemplatePage() {
       </div>
 
       {error && <Notice kind="error">{error}</Notice>}
+
+      {isOwner && editing && (
+        <form onSubmit={saveTemplate} className="panel mb-4" aria-label="Edit template">
+          <div className="mb-3">
+            <label htmlFor="editTitle" className="form-label fw-semibold">Title</label>
+            <input id="editTitle" className="form-control" maxLength={100} value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} required />
+          </div>
+          <div className="mb-3">
+            <label htmlFor="editDescription" className="form-label fw-semibold">Description</label>
+            <textarea id="editDescription" className="form-control" rows={2} maxLength={500} value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} />
+          </div>
+          <div className="row g-3 mb-3">
+            <div className="col-12 col-sm-6">
+              <label htmlFor="editCategory" className="form-label fw-semibold">Category</label>
+              <input id="editCategory" className="form-control" maxLength={40} value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })} />
+            </div>
+            <div className="col-12 col-sm-6">
+              <label htmlFor="editVisibility" className="form-label fw-semibold">Who can see it</label>
+              <select id="editVisibility" className="form-select" value={form.visibility} onChange={(e) => setForm({ ...form, visibility: e.target.value as Visibility })}>
+                <option value="public">Everyone, listed in browse</option>
+                <option value="unlisted">Anyone with the link</option>
+                <option value="private">Only me</option>
+              </select>
+            </div>
+          </div>
+          <div className="d-flex gap-2">
+            <button type="submit" className="btn btn-primary" disabled={busy || !form.title.trim()}>Save changes</button>
+            <button type="button" className="btn btn-outline-secondary" onClick={() => setEditing(false)} disabled={busy}>Cancel</button>
+          </div>
+        </form>
+      )}
+
       {items.length === 0 && <Notice>This template has no items yet.{isOwner ? " Add some below." : ""}</Notice>}
 
       <section className="panel mb-4" aria-labelledby="community-heading">
@@ -179,9 +282,14 @@ function TemplatePage() {
             <li key={item._id} className="d-inline-flex align-items-center gap-1 border rounded-pill ps-3 pe-1 py-1 bg-white">
               <span>{item.name}</span>
               {isOwner && (
-                <button type="button" className="btn btn-sm border-0 py-0" onClick={() => removeItem(item._id)} aria-label={`Remove ${item.name}`}>
-                  <i className="bi bi-x-lg" aria-hidden="true"></i>
-                </button>
+                <>
+                  <button type="button" className="btn btn-sm border-0 py-0 px-1" onClick={() => startEditItem(item)} aria-label={`Rename ${item.name}`}>
+                    <i className="bi bi-pencil" aria-hidden="true"></i>
+                  </button>
+                  <button type="button" className="btn btn-sm border-0 py-0 px-1" onClick={() => removeItem(item._id)} aria-label={`Remove ${item.name}`}>
+                    <i className="bi bi-x-lg" aria-hidden="true"></i>
+                  </button>
+                </>
               )}
             </li>
           ))}
@@ -190,6 +298,22 @@ function TemplatePage() {
         {isOwner && (
           <>
             <hr />
+            {editingItemId && (
+              <form onSubmit={saveItem} className="row g-2 align-items-end mb-3" aria-label="Edit item">
+                <div className="col-12 col-md-4">
+                  <label htmlFor="editItemName" className="form-label fw-semibold">Item name</label>
+                  <input id="editItemName" className="form-control" maxLength={60} value={itemName} onChange={(e) => setItemName(e.target.value)} required />
+                </div>
+                <div className="col-12 col-md">
+                  <label htmlFor="editItemImage" className="form-label fw-semibold">Image link (optional, https)</label>
+                  <input id="editItemImage" type="url" className="form-control" value={itemImage} onChange={(e) => setItemImage(e.target.value)} />
+                </div>
+                <div className="col-12 col-md-auto d-flex gap-2">
+                  <button type="submit" className="btn btn-primary" disabled={busy || !itemName.trim()}>Save item</button>
+                  <button type="button" className="btn btn-outline-secondary" onClick={() => setEditingItemId(null)} disabled={busy}>Cancel</button>
+                </div>
+              </form>
+            )}
             <form onSubmit={addItem} className="row g-2 align-items-end">
               <div className="col-12 col-md-4">
                 <label htmlFor="itemName" className="form-label fw-semibold">New item</label>

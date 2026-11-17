@@ -10,7 +10,7 @@ function TemplateCard({ template }: { template: Template }) {
   return (
     <Link to={`/templates/${template._id}`} className="tile-card">
       {template.coverImageUrl ? (
-        <div className="tile-cover" style={{ backgroundImage: `url(${template.coverImageUrl})` }} role="img" aria-label="" />
+        <div className="tile-cover" style={{ backgroundImage: `url(${JSON.stringify(template.coverImageUrl)})` }} role="img" aria-label="" />
       ) : (
         <div className="tile-cover tile-cover-stripes" aria-hidden="true">
           {stripes.map((label, i) => (
