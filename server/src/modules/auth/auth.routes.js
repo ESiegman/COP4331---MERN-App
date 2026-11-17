@@ -14,6 +14,7 @@ router.post('/resend-verification', emailLimiter, validate({ body: schemas.email
 router.post('/login', loginLimiter, validate({ body: schemas.login }), controller.login);
 router.post('/forgot-password', emailLimiter, validate({ body: schemas.emailOnly }), controller.forgotPassword);
 router.post('/reset-password', loginLimiter, validate({ body: schemas.resetPassword }), controller.resetPassword);
+router.get('/oauth/providers', controller.listOAuthProviders);
 router.post(
   '/oauth/:provider',
   loginLimiter,

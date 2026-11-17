@@ -7,18 +7,18 @@ Express API for the tier list app. Every route is under `/api`, and all request 
 
 ## Status
 
-39 of the 43 routes work. The other 4 are wired up, validated and guarded, but answer `501 Not Implemented` until someone picks a provider and writes the integration:
+43 of the 44 routes work. The other one is wired up, validated and guarded, but answers `501 Not Implemented` until someone picks a provider and writes the integration:
 
 | Waiting on | Routes | Where the work goes |
 | --- | --- | --- |
-| Google and Discord apps | `POST /auth/oauth/:provider`, `POST` and `DELETE /users/me/oauth/:provider` | `integrations/oauth.js`, then three functions in `modules/auth/auth.service.js` |
 | Image storage | `POST /uploads/sign` | `integrations/storage.js` |
 
-Email, push and AI suggestions work, with one setting each:
+Email, push, AI suggestions and Google and Discord login work, each once its settings are in place:
 
 - **Email** goes out through any SMTP server once `SMTP_URL` is set (see Configuration). Until it is set in `/opt/mern/.env`, production drops every email, so nobody new can verify an account there. In development without it, the email, link included, is written to the API log.
 - **Push notifications** go through Expo's push service as soon as the app registers a phone with `POST /api/users/me/push-tokens`. No account or key is needed unless "enhanced push security" is turned on in Expo's dashboard, which needs `EXPO_ACCESS_TOKEN`. Phones Expo reports as uninstalled are dropped from the account.
 - **AI item suggestions** use Claude through Anthropic's API once `ANTHROPIC_API_KEY` is set. Until then `POST /api/templates/suggest-items` answers `501`, which the web app shows as "not available yet".
+- **Google and Discord login** need each provider's client id and secret (`GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET`, `DISCORD_CLIENT_ID` and `DISCORD_CLIENT_SECRET`). A provider without them answers `501` and is left out of `GET /api/auth/oauth/providers`. See [Google and Discord](#google-and-discord).
 
 ## Endpoints
 
@@ -34,7 +34,8 @@ Email, push and AI suggestions work, with one setting each:
 | POST | `/api/auth/login` | none | Log in with email and password |
 | POST | `/api/auth/forgot-password` | none | Email a password reset link |
 | POST | `/api/auth/reset-password` | none | Redeem the reset link, set a new password |
-| POST | `/api/auth/oauth/:provider` | none | Log in with Google or Discord (501) |
+| GET | `/api/auth/oauth/providers` | none | Which of Google and Discord login are set up, with what a client needs to start them |
+| POST | `/api/auth/oauth/:provider` | none | Log in with Google or Discord, creating the account the first time |
 
 ### Users
 
@@ -44,8 +45,8 @@ Email, push and AI suggestions work, with one setting each:
 | PATCH | `/api/users/me` | token | Change your profile and notification switches |
 | POST | `/api/users/me/push-tokens` | token | Register this phone for push notifications |
 | DELETE | `/api/users/me/push-tokens` | token | Stop push notifications on this phone |
-| POST | `/api/users/me/oauth/:provider` | token | Link a Google or Discord account (501) |
-| DELETE | `/api/users/me/oauth/:provider` | token | Unlink it (501) |
+| POST | `/api/users/me/oauth/:provider` | token | Link a Google or Discord account |
+| DELETE | `/api/users/me/oauth/:provider` | token | Unlink it |
 | GET | `/api/users/:username` | none | Someone's public profile |
 | GET | `/api/users/:username/templates` | optional | Their templates |
 | GET | `/api/users/:username/rankings` | optional | Their rankings |
@@ -211,6 +212,45 @@ sequenceDiagram
 - The links in emails carry a random one-time token. The database stores only its SHA-256 hash, and MongoDB deletes expired tokens on its own. A verification link lasts 24 hours, a reset link 1 hour, and asking for a new link cancels the old one.
 - Rate limits, per client address: login, password reset and Google/Discord login allow 100 requests per 15 minutes, enough for a classroom on one network. Routes that send an email (register, resend verification, forgot password) allow 50 per hour. Verifying an email has no limit, since its token can't be guessed.
 - Tokens are stateless: logging out is the client forgetting the token, and changing a password does not cancel tokens that were already issued.
+
+### Google and Discord
+
+The web and Expo apps run the provider's sign-in page themselves, using the authorization code flow with PKCE, and hand the result to the API. Only the API has the client secrets, so only it can turn the code into who the person is.
+
+1. `GET /api/auth/oauth/providers` gives each set-up provider's `authorizeUrl`, `clientId` and `scope`.
+2. The client makes a random `state` and a random `codeVerifier`, keeps both, and sends the person to `authorizeUrl` with `response_type=code`, `client_id`, `redirect_uri`, `scope`, `state`, `code_challenge` (the base64url SHA-256 of the verifier) and `code_challenge_method=S256`.
+3. The provider sends them back to `redirect_uri` with `?code=...&state=...`. The client checks `state` matches what it kept.
+4. The client posts `{ code, codeVerifier, redirectUri }` to `/api/auth/oauth/:provider`, or to `/api/users/me/oauth/:provider` to link the provider to the account that is logged in.
+
+```mermaid
+sequenceDiagram
+    participant C as Client
+    participant P as Google or Discord
+    participant A as API
+    participant DB as MongoDB
+
+    C->>P: sign-in page with code_challenge and state
+    P-->>C: redirect_uri?code&state
+    C->>A: POST /api/auth/oauth/google { code, codeVerifier, redirectUri }
+    A->>P: code, verifier and client secret for an access token
+    A->>P: who is this? (id, email, whether the email is verified, name, picture)
+    A->>DB: oauthaccounts.findOne(provider, providerUserId)
+    alt linked already
+        A-->>C: 200 { token, user }
+    else the verified email belongs to a user
+        A->>DB: link the provider to that user
+        A-->>C: 200 { token, user }
+    else new person
+        A->>DB: insert user (no password, email verified) and the link, in one transaction
+        A-->>C: 200 { token, user }
+    end
+```
+
+- `redirectUri` has to be on the API's list, `OAUTH_REDIRECT_URIS`, which defaults to `APP_URL/oauth/callback`. The same address must also be registered with the provider (Google Cloud console, Discord Developer Portal). Both providers already have `https://mern.esiegman.dev/oauth/callback` and `http://localhost:5173/oauth/callback`.
+- An account is only matched or created by email when the provider says it checked the address. Otherwise the answer is `403` `OAUTH_EMAIL_UNVERIFIED`.
+- If someone registered that email with a password but never verified it, logging in with the provider takes the account over and removes that password, since nobody proved it belonged to the email's owner.
+- A new account's username comes from the person's name, with a number added if it is taken. They can change their display name later; the username stays.
+- Each user can link one Google and one Discord account, and each of those can belong to only one user. Unlinking is refused while it is the only way in (no password, nothing else linked). Such an account can still set a password through forgot password.
 
 ## Who can see what
 
@@ -384,11 +424,12 @@ Every error response has the same shape. `details` is only present for validatio
 | 403 | `EMAIL_NOT_VERIFIED` | Logging in before verifying the email |
 | 403 | `FORBIDDEN` | You can see it, but only its owner or author may change it |
 | 404 | `NOT_FOUND` | No such route or document, or one you are not allowed to see |
-| 409 | `CONFLICT` | The email or username is already taken |
+| 409 | `CONFLICT` | The email or username is already taken, or a Google or Discord account is already linked |
 | 413 | `TOO_LARGE` | A body over 100 kB |
 | 429 | `RATE_LIMITED` | Too many login, sign-up or email requests, or AI suggestions (see Authentication) |
 | 500 | `INTERNAL` | Anything unexpected. The details are logged on the server, not sent back |
 | 422, 502, 503 | `AI_…` | AI suggestions only: see `POST /api/templates/suggest-items` |
+| 400, 403, 501, 502, 503 | `OAUTH_…` | Google and Discord login only: see `POST /api/auth/oauth/:provider` |
 | 501 | `NOT_IMPLEMENTED` | A route from the Status table above, or AI suggestions without `ANTHROPIC_API_KEY` |
 
 ## Objects
@@ -409,6 +450,15 @@ Your own user, from login and `/users/me`. `displayName`, `bio` and `avatarUrl` 
   "bio": "Ranks snacks.",
   "notificationPrefs": { "newComment": true, "newRanking": true, "newLike": false },
   "createdAt": "2026-11-15T17:28:23.200Z"
+}
+```
+
+`GET /api/users/me` also includes how the account can log in, for a settings page:
+
+```json
+{
+  "hasPassword": false,
+  "linkedAccounts": [{ "provider": "google", "email": "ada@gmail.com", "linkedAt": "2026-11-16T21:40:00.000Z" }]
 }
 ```
 
@@ -608,15 +658,50 @@ Response `200`: `{ "message": "Password updated. You can log in now." }`. Using 
 
 Errors: `400` `This link is invalid or has expired`.
 
+### GET /api/auth/oauth/providers
+
+The providers this server has set up. One that isn't set up is left out, so the client can hide its button.
+
+```json
+{
+  "providers": [
+    {
+      "provider": "google",
+      "name": "Google",
+      "clientId": "1234-abc.apps.googleusercontent.com",
+      "authorizeUrl": "https://accounts.google.com/o/oauth2/v2/auth",
+      "scope": "openid email profile"
+    },
+    {
+      "provider": "discord",
+      "name": "Discord",
+      "clientId": "1572074089659637760",
+      "authorizeUrl": "https://discord.com/oauth2/authorize",
+      "scope": "identify email"
+    }
+  ]
+}
+```
+
 ### POST /api/auth/oauth/:provider
 
-Not built yet (`501`). `:provider` is `google` or `discord`. The client runs the provider's sign-in screen itself and sends what it got back:
+`:provider` is `google` or `discord`. The client runs the provider's sign-in page itself (see [Google and Discord](#google-and-discord)) and sends what it got back:
 
 ```json
 { "code": "...", "codeVerifier": "...", "redirectUri": "https://mern.esiegman.dev/oauth/callback" }
 ```
 
-Planned response: the same as login.
+Response `200`: the same as login, `{ token, user }`. The first login creates the account.
+
+| Status | `code` | When |
+| --- | --- | --- |
+| 400 | `OAUTH_CODE_INVALID` | The code expired, was already used, or doesn't match `codeVerifier`. Start the sign-in again |
+| 400 | `OAUTH_REDIRECT_NOT_ALLOWED` | `redirectUri` is not in `OAUTH_REDIRECT_URIS` |
+| 403 | `OAUTH_EMAIL_UNVERIFIED` | The provider has no verified email for this person |
+| 409 | `CONFLICT` | The user with this email already has a different account from this provider linked |
+| 501 | `OAUTH_NOT_CONFIGURED` | This provider's client id and secret aren't set on the server |
+| 502 | `OAUTH_FAILED` | The provider refused our request, usually a wrong secret or an unregistered redirect URI. The reason is in the API log |
+| 503 | `OAUTH_UNAVAILABLE` | The provider couldn't be reached |
 
 ### GET /api/users/me
 
@@ -653,9 +738,19 @@ Response `204`. Registering the same phone twice is harmless. A token belongs to
 
 Same body. The Expo app calls this on logout. Response `204`.
 
-### POST /api/users/me/oauth/:provider and DELETE /api/users/me/oauth/:provider
+### POST /api/users/me/oauth/:provider
 
-Not built yet (`501`). Link or unlink a Google or Discord account. `POST` takes the same body as `/auth/oauth/:provider`.
+Links a Google or Discord account to the account that is logged in. Same body and provider errors as `POST /api/auth/oauth/:provider`. The provider's email doesn't have to match.
+
+Response `201`: `{ "provider": "discord", "email": "ada@example.com", "linkedAt": "2026-11-16T21:40:00.000Z" }`.
+
+Errors: `409` if that provider account is already linked (to you or to someone else), or you already have one from this provider.
+
+### DELETE /api/users/me/oauth/:provider
+
+Response `204`.
+
+Errors: `404` nothing linked from that provider. `409` it is the only way into the account (no password and nothing else linked).
 
 ### GET /api/users/:username
 
@@ -1039,6 +1134,9 @@ For the five unwritten routes, steps 1 and 3 are done. Each service or integrati
 | `EMAIL_FROM` | `Tier List <no-reply@APP_URL's domain>` | Who emails come from. Most providers only accept a domain you have verified with them |
 | `EXPO_ACCESS_TOKEN` | | Only if "enhanced push security" is on in Expo's dashboard |
 | `ANTHROPIC_API_KEY` | | Claude API key for AI item suggestions. Create one in the Claude Console; it starts with `sk-ant-api`. Without it, suggest-items answers `501` |
+| `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | | The "Tier List Web" OAuth client in the Google Cloud project "Tier List App" (Google Auth Platform > Clients). Without both, Google login answers `501` |
+| `DISCORD_CLIENT_ID`, `DISCORD_CLIENT_SECRET` | | The "Tier List App" application in the Discord Developer Portal (OAuth2 page). Without both, Discord login answers `501` |
+| `OAUTH_REDIRECT_URIS` | `APP_URL/oauth/callback` | Comma-separated redirect URIs clients may use for Google and Discord login, such as an Expo app's. Each must also be registered with the provider |
 
 The API checks these at startup and stops with a message naming any that are missing or malformed. In Docker they come from `compose.yaml` locally and from `/opt/mern/.env` on the droplet. To run outside Docker, copy `.env.example` to `.env`.
 
@@ -1070,8 +1168,9 @@ For trying the API by hand rather than in tests, the sample data gives you accou
 | `routes.test.js` | Every route: guests get `401` where a token is needed, unwritten routes answer `501` |
 | `lib.test.js` | Tokens, cursors, visibility rules, community ranking maths, notification switches |
 | `auth.integration.test.js` | Sign-up, verification, login, password reset, `/users/me` |
+| `oauth.integration.test.js` | Google and Discord login, matching by verified email, taking over unverified sign-ups, linking and unlinking (providers faked) |
 | `models.integration.test.js` | Every model saves against the validators in `db/setup.js` |
 | `content.integration.test.js` | Templates, items, rankings, publishing, likes, community ranking, cascading deletes |
 | `social.integration.test.js` | Profiles, push tokens, comments and edits, the notification list |
 | `visibility.integration.test.js` | Rankings follow their template's visibility, `rankingCount` through every change, push on publish |
-| `integrations.test.js` | The Expo push request and its replies, the email settings, AI suggestions (with Claude's API swapped out) |
+| `integrations.test.js` | The Expo push request and its replies, the email settings, AI suggestions (with Claude's API swapped out), the Google and Discord requests and their errors |

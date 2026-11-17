@@ -66,7 +66,8 @@ try {
       },
       indexes: [
         { key: { provider: 1, providerUserId: 1 }, unique: true },
-        { key: { userId: 1 } },
+        // one Google and one Discord account per user
+        { key: { userId: 1, provider: 1 }, unique: true },
       ],
     },
 
@@ -221,6 +222,10 @@ try {
   if (existing.has('users')) {
     await db.collection('users').deleteMany({ username: { $exists: false } });
     if (await db.collection('users').indexExists('login_1')) await db.collection('users').dropIndex('login_1');
+  }
+  // replaced by the unique userId + provider index, which also serves lookups by userId
+  if (existing.has('oauthaccounts') && (await db.collection('oauthaccounts').indexExists('userId_1'))) {
+    await db.collection('oauthaccounts').dropIndex('userId_1');
   }
 
   for (const [name, { schema, indexes }] of Object.entries(collections)) {

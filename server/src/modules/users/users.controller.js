@@ -4,8 +4,7 @@ import * as templatesService from '../templates/templates.service.js';
 import * as usersService from './users.service.js';
 
 export async function getAccount(req, res) {
-  const user = await usersService.getAccount(req.userId);
-  res.json(user.toAccount());
+  res.json(await usersService.getAccount(req.userId));
 }
 
 export async function updateAccount(req, res) {

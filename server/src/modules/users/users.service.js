@@ -1,5 +1,5 @@
 import { notFound, unauthorized } from '../../lib/errors.js';
-import { User } from '../../models/index.js';
+import { OAuthAccount, User } from '../../models/index.js';
 
 // "Manage profile" and "Choose notifications" from the use case diagram, plus public profiles.
 
@@ -32,8 +32,17 @@ export async function getProfile(username) {
   return (await findUserByUsername(username)).toPublicProfile();
 }
 
-// GET /users/me
-export const getAccount = (userId) => findAccount(userId);
+// GET /users/me: the account, plus the ways it can log in, for a settings page
+export async function getAccount(userId) {
+  const user = await User.findById(userId).select('+passwordHash');
+  if (!user) throw accountGone();
+  const linked = await OAuthAccount.find({ userId }).sort({ linkedAt: 1 });
+  return {
+    ...user.toAccount(),
+    hasPassword: Boolean(user.passwordHash),
+    linkedAccounts: linked.map((account) => account.toLinkedAccount()),
+  };
+}
 
 // PATCH /users/me
 export async function updateAccount(userId, { notificationPrefs = {}, ...profile }) {

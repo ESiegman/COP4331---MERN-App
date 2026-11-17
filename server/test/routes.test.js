@@ -21,14 +21,15 @@ const DONE = 'done'; // written, and covered by an integration test
 
 // [method, path, body, needs a token?, state]
 const ROUTES = [
-  ['post', '/auth/oauth/google', oauth, GUEST, TODO],
+  ['get', '/auth/oauth/providers', undefined, GUEST, DONE],
+  ['post', '/auth/oauth/google', oauth, GUEST, DONE],
 
   ['get', '/users/me', undefined, TOKEN, DONE],
   ['patch', '/users/me', { bio: 'hi' }, TOKEN, DONE],
   ['post', '/users/me/push-tokens', pushToken, TOKEN, DONE],
   ['delete', '/users/me/push-tokens', pushToken, TOKEN, DONE],
-  ['post', '/users/me/oauth/discord', oauth, TOKEN, TODO],
-  ['delete', '/users/me/oauth/discord', undefined, TOKEN, TODO],
+  ['post', '/users/me/oauth/discord', oauth, TOKEN, DONE],
+  ['delete', '/users/me/oauth/discord', undefined, TOKEN, DONE],
   ['get', '/users/ada', undefined, GUEST, DONE],
   ['get', '/users/ada/templates', undefined, GUEST, DONE],
   ['get', '/users/ada/rankings', undefined, GUEST, DONE],

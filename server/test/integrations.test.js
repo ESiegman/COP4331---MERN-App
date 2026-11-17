@@ -5,8 +5,10 @@ import Anthropic from '@anthropic-ai/sdk';
 import request from 'supertest';
 import { createApp } from '../src/app.js';
 import { aiClient, cleanSuggestions, suggestItemNames } from '../src/integrations/ai.js';
+import { exchangeCode } from '../src/integrations/oauth.js';
 import { sendToExpo } from '../src/integrations/push.js';
 import { signToken } from '../src/lib/jwt.js';
+import { configureProviders, fakeProviders, REDIRECT_URI, signIn } from './fakeOAuth.js';
 
 // The outside services, with the network replaced. No database needed.
 
@@ -143,4 +145,111 @@ test('AI: the route returns the cleaned names', async (t) => {
   const res = await request(createApp()).post('/api/templates/suggest-items').set(auth).send({ topic: 'fast food chains', count: 2 });
   assert.equal(res.status, 200);
   assert.deepEqual(res.body, { items: ["McDonald's", "Wendy's"] });
+});
+
+// --- Google and Discord login, with both providers' endpoints faked (see fakeOAuth.js)
+
+test('OAuth: Google gets the code, the PKCE verifier and our credentials, and the identity comes back', async (t) => {
+  const fetch = fakeProviders(t, {
+    abc: { sub: '1093', email: 'Ada@Example.com', email_verified: true, name: 'Ada Lovelace', picture: 'https://lh3.googleusercontent.com/a/ada' },
+  });
+
+  const identity = await exchangeCode('google', signIn('abc'));
+  assert.deepEqual(identity, {
+    providerUserId: '1093',
+    email: 'ada@example.com',
+    emailVerified: true,
+    name: 'Ada Lovelace',
+    avatarUrl: 'https://lh3.googleusercontent.com/a/ada',
+  });
+
+  const [tokenUrl, tokenRequest] = fetch.mock.calls[0].arguments;
+  assert.equal(tokenUrl, 'https://oauth2.googleapis.com/token');
+  assert.equal(tokenRequest.method, 'POST');
+  assert.deepEqual(Object.fromEntries(tokenRequest.body), {
+    grant_type: 'authorization_code',
+    code: 'abc',
+    code_verifier: 'verifier-for-abc',
+    redirect_uri: REDIRECT_URI,
+    client_id: 'google-client-id',
+    client_secret: 'google-client-secret',
+  });
+  const [userUrl, userRequest] = fetch.mock.calls[1].arguments;
+  assert.equal(userUrl, 'https://openidconnect.googleapis.com/v1/userinfo');
+  assert.equal(userRequest.headers.authorization, 'Bearer token-abc');
+});
+
+test('OAuth: Discord users map to the same shape, avatar and unverified email included', async (t) => {
+  fakeProviders(t, {
+    verified: { id: '80351110224678912', username: 'nelly', global_name: 'Nelly', avatar: 'a_8342729096ea3675442027381ff50dfe', email: 'nelly@example.com', verified: true },
+    unverified: { id: '2', username: 'bob', global_name: null, avatar: null, email: 'bob@example.com', verified: false },
+    phoneOnly: { id: '3', username: 'cat', avatar: '1f2e', email: null, verified: true },
+  });
+
+  assert.deepEqual(await exchangeCode('discord', signIn('verified')), {
+    providerUserId: '80351110224678912',
+    email: 'nelly@example.com',
+    emailVerified: true,
+    name: 'Nelly',
+    avatarUrl: 'https://cdn.discordapp.com/avatars/80351110224678912/a_8342729096ea3675442027381ff50dfe.gif',
+  });
+
+  const bob = await exchangeCode('discord', signIn('unverified'));
+  assert.equal(bob.name, 'bob', 'falls back to the username');
+  assert.equal(bob.avatarUrl, undefined);
+  assert.equal(bob.emailVerified, false);
+
+  const cat = await exchangeCode('discord', signIn('phoneOnly'));
+  assert.equal(cat.email, undefined);
+  assert.equal(cat.emailVerified, false, 'no email can never count as a verified one');
+  assert.equal(cat.avatarUrl, 'https://cdn.discordapp.com/avatars/3/1f2e.png');
+});
+
+test('OAuth: provider answers become errors the app can act on', async (t) => {
+  const fetch = fakeProviders(t, {});
+  await assert.rejects(exchangeCode('google', signIn('expired')), { status: 400, code: 'OAUTH_CODE_INVALID' });
+  await assert.rejects(exchangeCode('google', { ...signIn('x'), redirectUri: 'https://evil.example.com/cb' }), {
+    status: 400,
+    code: 'OAUTH_REDIRECT_NOT_ALLOWED',
+  });
+
+  fetch.mock.mockImplementation(async () => reply(401, { error: 'invalid_client' }));
+  await assert.rejects(exchangeCode('discord', signIn('x')), { status: 502, code: 'OAUTH_FAILED' });
+
+  fetch.mock.mockImplementation(async () => {
+    throw new TypeError('fetch failed');
+  });
+  await assert.rejects(exchangeCode('discord', signIn('x')), { status: 503, code: 'OAUTH_UNAVAILABLE' });
+});
+
+test('OAuth: without a client id and secret the provider answers 501 and is not listed', async (t) => {
+  const app = createApp();
+  const google = await request(app).post('/api/auth/oauth/google').send(signIn('abc'));
+  assert.equal(google.status, 501);
+  assert.equal(google.body.code, 'OAUTH_NOT_CONFIGURED');
+  assert.deepEqual((await request(app).get('/api/auth/oauth/providers')).body, { providers: [] });
+
+  configureProviders(t);
+  const listed = await request(app).get('/api/auth/oauth/providers');
+  assert.deepEqual(listed.body.providers, [
+    { provider: 'google', name: 'Google', clientId: 'google-client-id', authorizeUrl: 'https://accounts.google.com/o/oauth2/v2/auth', scope: 'openid email profile' },
+    { provider: 'discord', name: 'Discord', clientId: 'discord-client-id', authorizeUrl: 'https://discord.com/oauth2/authorize', scope: 'identify email' },
+  ]);
+  assert.doesNotMatch(listed.text, /secret/);
+});
+
+test('OAUTH_REDIRECT_URIS: a comma-separated list of URLs, empty means the default', () => {
+  const read = (value) => {
+    const script = "import('./src/config/env.js').then(({ env }) => console.log(JSON.stringify(env.OAUTH_REDIRECT_URIS ?? null)))";
+    const result = spawnSync(process.execPath, ['--input-type=module', '-e', script], {
+      env: { PATH: process.env.PATH, NODE_ENV: 'test', JWT_SECRET: 'x', OAUTH_REDIRECT_URIS: value },
+      encoding: 'utf8',
+    });
+    return { ok: result.status === 0, output: result.stdout.trim(), error: result.stderr };
+  };
+  assert.equal(read('').output, 'null');
+  assert.equal(read(' https://a.example.com/cb , tierlist://oauth ').output, JSON.stringify(['https://a.example.com/cb', 'tierlist://oauth']));
+  const bad = read('https://a.example.com/cb,not a url');
+  assert.equal(bad.ok, false);
+  assert.match(bad.error, /OAUTH_REDIRECT_URIS/);
 });

@@ -26,6 +26,19 @@ const schema = z
     ANTHROPIC_API_KEY: optional(z.string().min(1)),
     // Only needed if "enhanced push security" is turned on for the project in Expo's dashboard
     EXPO_ACCESS_TOKEN: optional(z.string().min(1)),
+    // Log in with Google and Discord. A provider without both its id and secret answers 501.
+    GOOGLE_CLIENT_ID: optional(z.string().min(1)),
+    GOOGLE_CLIENT_SECRET: optional(z.string().min(1)),
+    DISCORD_CLIENT_ID: optional(z.string().min(1)),
+    DISCORD_CLIENT_SECRET: optional(z.string().min(1)),
+    // Comma-separated redirect URIs clients may use for Google and Discord login.
+    // Defaults to APP_URL/oauth/callback.
+    OAUTH_REDIRECT_URIS: optional(
+      z
+        .string()
+        .transform((list) => list.split(',').map((uri) => uri.trim()).filter(Boolean))
+        .pipe(z.array(z.url({ error: 'must be a comma-separated list of URLs' })).min(1, 'must list at least one URL')),
+    ),
   })
   // Tests that never touch the database can run without one
   .refine((vars) => vars.NODE_ENV === 'test' || vars.MONGODB_URI, {

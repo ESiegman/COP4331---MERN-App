@@ -79,8 +79,8 @@ All requests and responses are JSON. See [server/README.md](server/README.md) fo
 
 | Area | Under | What it covers |
 | --- | --- | --- |
-| Auth | `/api/auth` | Register, verify email, log in, reset password |
-| Users | `/api/users` | Your account and notification settings, public profiles |
+| Auth | `/api/auth` | Register, verify email, log in (also with Google or Discord), reset password |
+| Users | `/api/users` | Your account, notification settings and linked Google or Discord accounts, public profiles |
 | Templates | `/api/templates` | The things to rank and their items, search, the community ranking |
 | Rankings | `/api/rankings` | A person's tier list for a template, the feed, likes |
 | Comments | `/api/rankings/:rankingId/comments`, `/api/comments` | Comments on a ranking |
@@ -89,7 +89,7 @@ All requests and responses are JSON. See [server/README.md](server/README.md) fo
 
 Browsing, searching and viewing public templates and rankings needs no account. Everything else needs the token from logging in, sent as `Authorization: Bearer <token>`. A new account has to verify its email before it can log in.
 
-A few routes that depend on outside services (Google and Discord login, image uploads) are not built yet. The Status section of [server/README.md](server/README.md#status) lists them, along with the settings that email, push and AI suggestions need.
+Image uploads are not built yet. The Status section of [server/README.md](server/README.md#status) covers that, along with the settings that email, push, AI suggestions and Google and Discord login need.
 
 ## Deployment
 

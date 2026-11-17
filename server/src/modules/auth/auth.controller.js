@@ -1,3 +1,4 @@
+import { listProviders } from '../../integrations/oauth.js';
 import * as authService from './auth.service.js';
 
 // Controllers stay thin: read the validated input from req.valid, call the service, shape the
@@ -31,6 +32,10 @@ export async function forgotPassword(req, res) {
 export async function resetPassword(req, res) {
   await authService.resetPassword(req.valid.body);
   res.json({ message: 'Password updated. You can log in now.' });
+}
+
+export function listOAuthProviders(req, res) {
+  res.json({ providers: listProviders() });
 }
 
 export async function loginWithOAuth(req, res) {
