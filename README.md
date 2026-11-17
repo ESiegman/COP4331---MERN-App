@@ -84,10 +84,13 @@ All requests and responses are JSON. See [server/README.md](server/README.md) fo
 | Templates | `/api/templates` | The things to rank and their items, search, the community ranking |
 | Rankings | `/api/rankings` | A person's tier list for a template, the feed, likes |
 | Comments | `/api/rankings/:rankingId/comments`, `/api/comments` | Comments on a ranking |
-| Notifications | `/api/notifications` | Who ranked, liked or commented on your content |
+| Notifications | `/api/notifications` | Who ranked, liked or commented on your content, and moderator removals |
+| Admin | `/api/admin` | Bans, roles and the moderation log, for moderators and admins |
 | Health | `/api/health` | Health check |
 
 Browsing, searching and viewing public templates and rankings needs no account. Everything else needs the token from logging in, sent as `Authorization: Bearer <token>`. A new account has to verify its email before it can log in.
+
+Accounts are users, moderators or admins. Moderators can delete anyone's content and ban accounts; admins also manage roles and read the moderation log. [server/README.md](server/README.md#moderators-and-admins) has the details, including how to make the first admin.
 
 Image uploads are not built yet. The Status section of [server/README.md](server/README.md#status) covers that, along with the settings that email, push, AI suggestions and Google and Discord login need.
 
@@ -159,6 +162,12 @@ ssh deploy@mern.esiegman.dev
 cd /opt/mern
 docker compose ps
 docker compose logs -f api
+```
+
+To make someone an admin (the first one has to be made this way):
+
+```sh
+docker compose exec api node src/scripts/setRole.js <username> admin
 ```
 
 The API source is at `/opt/mern/server` (for example `vi /opt/mern/server/src/modules/auth/auth.service.js`). It's a copy updated on every deploy; the running container uses the image built from the same commit.

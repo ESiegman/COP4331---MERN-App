@@ -7,7 +7,7 @@ Express API for the tier list app. Every route is under `/api`, and all request 
 
 ## Status
 
-43 of the 44 routes work. The other one is wired up, validated and guarded, but answers `501 Not Implemented` until someone picks a provider and writes the integration:
+48 of the 49 routes work. The other one is wired up, validated and guarded, but answers `501 Not Implemented` until someone picks a provider and writes the integration:
 
 | Waiting on | Routes | Where the work goes |
 | --- | --- | --- |
@@ -60,7 +60,7 @@ Email, push, AI suggestions and Google and Discord login work, each once its set
 | POST | `/api/templates/suggest-items` | token | Ask AI for items to rank |
 | GET | `/api/templates/:templateId` | optional | One template with its items |
 | PATCH | `/api/templates/:templateId` | token, owner | Change a template |
-| DELETE | `/api/templates/:templateId` | token, owner | Delete a template and everything on it |
+| DELETE | `/api/templates/:templateId` | token, owner or moderator | Delete a template and everything on it |
 | POST | `/api/templates/:templateId/items` | token, owner | Add an item |
 | PATCH | `/api/templates/:templateId/items/:itemId` | token, owner | Rename an item or change its image |
 | DELETE | `/api/templates/:templateId/items/:itemId` | token, owner | Remove an item |
@@ -75,7 +75,7 @@ Email, push, AI suggestions and Google and Discord login work, each once its set
 | GET | `/api/rankings` | none | Feed of public rankings |
 | GET | `/api/rankings/:rankingId` | optional | One ranking with everything needed to draw it |
 | PUT | `/api/rankings/:rankingId` | token, owner | Save the board, and optionally publish it |
-| DELETE | `/api/rankings/:rankingId` | token, owner | Delete a ranking |
+| DELETE | `/api/rankings/:rankingId` | token, owner or moderator | Delete a ranking |
 | PUT | `/api/rankings/:rankingId/like` | token | Like a ranking |
 | DELETE | `/api/rankings/:rankingId/like` | token | Take the like back |
 
@@ -86,7 +86,7 @@ Email, push, AI suggestions and Google and Discord login work, each once its set
 | GET | `/api/rankings/:rankingId/comments` | optional | Comments on a ranking, oldest first |
 | POST | `/api/rankings/:rankingId/comments` | token | Comment on a ranking |
 | PATCH | `/api/comments/:commentId` | token, author | Edit your comment |
-| DELETE | `/api/comments/:commentId` | token, author or ranking owner | Delete a comment |
+| DELETE | `/api/comments/:commentId` | token, author, ranking owner or moderator | Delete a comment |
 
 ### Notifications and the rest
 
@@ -97,6 +97,18 @@ Email, push, AI suggestions and Google and Discord login work, each once its set
 | POST | `/api/notifications/read-all` | token | Mark all as read |
 | POST | `/api/uploads/sign` | token | Get a ticket for uploading an image (501) |
 | GET | `/api/health` | none | Check the API is up |
+
+### Admin
+
+Moderators remove content with the normal `DELETE` routes above. These are the rest. See [Moderators and admins](#moderators-and-admins).
+
+| Method | Path | Auth | Description |
+| --- | --- | --- | --- |
+| GET | `/api/admin/users?status=staff` or `banned` | moderator | Moderators and admins, or banned accounts |
+| POST | `/api/admin/users/:username/ban` | moderator | Ban an account |
+| DELETE | `/api/admin/users/:username/ban` | moderator | Unban it |
+| PUT | `/api/admin/users/:username/role` | admin | Make someone a user, moderator or admin |
+| GET | `/api/admin/log` | admin | Every moderation action, newest first |
 
 ## Code layout
 
@@ -114,16 +126,18 @@ src/
     pagination.js             findPage and cursors for list endpoints
     schemas.js                Zod pieces shared by the modules
     sharedContent.js          canView, isOwner, shareUrl for templates and rankings
+    roles.js                  hasRole, isModerator, and the ACCOUNT_BANNED error
     logger.js                 pino logger and the request logger
   middleware/
-    auth.js                   requireAuth, optionalAuth
+    auth.js                   requireAuth, optionalAuth, requireRole
     validate.js               validate({ params, query, body }) with Zod
     rateLimit.js              limits on auth and AI routes
     errorHandler.js           404 for unknown routes, one place that turns errors into JSON
   models/                     one Mongoose model per collection, plus enums.js
   integrations/               email, push, storage, ai, oauth: the outside services
   modules/
-    auth/  users/  templates/  rankings/  comments/  notifications/  uploads/
+    auth/  users/  templates/  rankings/  comments/  notifications/  uploads/  admin/
+  scripts/setRole.js          gives an account a role from the server (the first admin)
 test/                         see Tests below
 ```
 
@@ -154,7 +168,10 @@ flowchart TD
     F -- no, or under --> G{requireAuth or optionalAuth}
     G -- token missing on a requireAuth route --> G1[401]
     G -- token invalid or expired --> G1
-    G -- ok --> H{validate: params, query, body match the Zod schemas?}
+    G -- account banned --> G2[403]
+    G -- ok --> RR{requireRole on admin routes}
+    RR -- role too low --> G2
+    RR -- ok, or not an admin route --> H{validate: params, query, body match the Zod schemas?}
     H -- no --> H1[400 with a list of the problems]
     H -- yes --> K[Controller]
     K --> L[Service]
@@ -166,7 +183,7 @@ flowchart TD
 Three things to know when reading or writing a route:
 
 - **Validated input lives on `req.valid`.** `validate()` puts the parsed params, query and body there: trimmed, coerced to the right types, defaults applied, unknown keys dropped. Controllers read `req.valid.body`, never `req.body`.
-- **`req.userId` is the caller.** `requireAuth` guarantees it is set. `optionalAuth` sets it to `null` for a guest.
+- **`req.userId` is the caller, and `req.userRole` their role.** `requireAuth` guarantees both are set, after reading the account from the database. `optionalAuth` sets them to `null` for a guest, and for a banned account.
 - **Nothing catches errors by hand.** Express 5 forwards anything thrown from an async handler to `errorHandler`, so services just `throw notFound('Template')`.
 
 ## Authentication
@@ -211,7 +228,7 @@ sequenceDiagram
 - Passwords are hashed with bcrypt (10 rounds). The hash is never loaded unless a query asks for it, and never sent in a response.
 - The links in emails carry a random one-time token. The database stores only its SHA-256 hash, and MongoDB deletes expired tokens on its own. A verification link lasts 24 hours, a reset link 1 hour, and asking for a new link cancels the old one.
 - Rate limits, per client address: login, password reset and Google/Discord login allow 100 requests per 15 minutes, enough for a classroom on one network. Routes that send an email (register, resend verification, forgot password) allow 50 per hour. Verifying an email has no limit, since its token can't be guessed.
-- Tokens are stateless: logging out is the client forgetting the token, and changing a password does not cancel tokens that were already issued.
+- Tokens are stateless: logging out is the client forgetting the token, and changing a password does not cancel tokens that were already issued. Every request that sends a token does read the account, though, so a ban or a deleted account stops its tokens at once (see Moderators and admins).
 
 ### Google and Discord
 
@@ -252,6 +269,35 @@ sequenceDiagram
 - A new account's username comes from the person's name, with a number added if it is taken. They can change their display name later; the username stays.
 - Each user can link one Google and one Discord account, and each of those can belong to only one user. Unlinking is refused while it is the only way in (no password, nothing else linked). Such an account can still set a password through forgot password.
 
+## Moderators and admins
+
+Every account has a `role`: `user` (the default), `moderator` or `admin`. Each one can do everything the ones before it can.
+
+| | user | moderator | admin |
+| --- | --- | --- | --- |
+| Delete their own templates, rankings and comments | yes | yes | yes |
+| Delete anyone's template, ranking or comment they can see | | yes | yes |
+| Ban and unban users, see banned accounts and the staff list | | yes | yes |
+| Ban moderators | | | yes |
+| Change roles, read the moderation log | | | yes |
+
+- **Roles and bans are read from the database on every request**, not stored in the login token. A ban or a role change applies to the very next request, with no need to log in again.
+- **A ban** stops every way of logging in (`403` `ACCOUNT_BANNED`, with the reason) and every request that needs a token. The account's existing tokens stop working and its phones stop getting push notifications. A banned account can still browse as a guest. Its templates, rankings and comments stay up; moderators remove anything bad one at a time. Nobody can ban themselves or an admin, and only admins can ban moderators.
+- **Moderators can't see private content** any more than other people can. They act on what is public or unlisted.
+- **When a moderator removes someone's content**, the owner gets a `content_removed` notification saying what was removed and why, but not which moderator did it. It can't be switched off. A moderator deleting their own content is an ordinary delete.
+- **Everything is logged** in `moderationlogs`: who acted, whose account or content it was, a short copy of what was removed (a title, or the start of a comment), the reason, and when. Refused actions are not logged.
+- **Admins can't change their own role**, so the site always keeps at least one admin.
+
+### Making the first admin
+
+No route can make an admin out of nobody, so the first one is made on the server. Log in to the droplet and run:
+
+```sh
+cd /opt/mern && docker compose exec api node src/scripts/setRole.js <username> admin
+```
+
+It works with any role (`user`, `moderator`, `admin`), and the change is logged with no actor. After that, admins manage roles with `PUT /api/admin/users/:username/role`. Locally, run `node src/scripts/setRole.js <username> admin` in `server/` with `MONGODB_URI` set, or `docker compose exec api node src/scripts/setRole.js <username> admin`.
+
 ## Who can see what
 
 Templates and rankings both have a `visibility`:
@@ -266,7 +312,7 @@ A ranking is also a **draft** until it is published (`publishedAt` is `null`). O
 
 **A ranking is never more visible than its template.** A public ranking of an unlisted template behaves as unlisted: it opens by link and appears on the template's page, but never in the feed or on profiles. Any ranking of a private template behaves as private. This also applies when a template is made private after other people ranked it: their rankings disappear for everyone else, and each owner keeps seeing their own.
 
-When someone may not see a template or ranking, the API answers `404`, the same as if it did not exist. `403` is only used when they can see it but may not change it.
+When someone may not see a template or ranking, the API answers `404`, the same as if it did not exist. `403` is only used when they can see it but may not change it. Moderators follow the same rules for seeing, and may also delete what they can see.
 
 ## Data model
 
@@ -284,6 +330,7 @@ erDiagram
     rankings ||--o{ comments : has
     rankings ||--o{ likes : has
     rankings ||--o{ notifications : about
+    users ||--o{ moderationlogs : "acts in or is the target of"
 
     users {
         ObjectId _id PK
@@ -291,6 +338,9 @@ erDiagram
         string email UK "stored lowercase"
         string passwordHash "null for Google or Discord only accounts"
         boolean emailVerified
+        string role "user, moderator or admin. Missing means user"
+        date bannedAt "set while banned"
+        string banReason
         string displayName
         string bio
         string avatarUrl
@@ -365,9 +415,20 @@ erDiagram
         ObjectId _id PK
         ObjectId recipientId FK
         ObjectId actorId FK
-        string type "new_ranking, new_comment or new_like"
-        ObjectId rankingId FK
+        string type "new_ranking, new_comment, new_like or content_removed"
+        ObjectId rankingId FK "unset for a removed template or ranking"
+        object removed "content_removed only: kind, title, reason"
         boolean read
+        date createdAt
+    }
+    moderationlogs {
+        ObjectId _id PK
+        ObjectId actorId FK "unset when set with the setRole command"
+        string action "delete_template, delete_ranking, delete_comment, ban, unban or set_role"
+        ObjectId targetUserId FK "whose account or content"
+        ObjectId contentId "the removed template, ranking or comment"
+        string summary "title, start of the comment, or the role change"
+        string reason
         date createdAt
     }
 ```
@@ -422,7 +483,8 @@ Every error response has the same shape. `details` is only present for validatio
 | 400 | `BAD_REQUEST` | Invalid JSON, a used or expired link, an item that is not in the template, liking or commenting on a draft |
 | 401 | `UNAUTHORIZED` | No token, an invalid or expired token, or a wrong email or password |
 | 403 | `EMAIL_NOT_VERIFIED` | Logging in before verifying the email |
-| 403 | `FORBIDDEN` | You can see it, but only its owner or author may change it |
+| 403 | `ACCOUNT_BANNED` | The account is banned: logging in, or any request that needs a token. `error` includes the reason |
+| 403 | `FORBIDDEN` | You can see it, but only its owner or author (or a moderator) may change it, or the route needs a moderator or admin |
 | 404 | `NOT_FOUND` | No such route or document, or one you are not allowed to see |
 | 409 | `CONFLICT` | The email or username is already taken, or a Google or Discord account is already linked |
 | 413 | `TOO_LARGE` | A body over 100 kB |
@@ -438,7 +500,7 @@ The shapes that come back from more than one endpoint. Optional fields are left 
 
 ### Account
 
-Your own user, from login and `/users/me`. `displayName`, `bio` and `avatarUrl` only appear once set.
+Your own user, from login and `/users/me`. `displayName`, `bio` and `avatarUrl` only appear once set. `role` is `user`, `moderator` or `admin`; the apps show moderator buttons from it.
 
 ```json
 {
@@ -446,6 +508,7 @@ Your own user, from login and `/users/me`. `displayName`, `bio` and `avatarUrl` 
   "username": "ada",
   "email": "ada@example.com",
   "emailVerified": true,
+  "role": "user",
   "displayName": "Ada L.",
   "bio": "Ranks snacks.",
   "notificationPrefs": { "newComment": true, "newRanking": true, "newLike": false },
@@ -554,7 +617,7 @@ What everyone else sees of a user. It appears as `owner`, `author` and `actor` o
 
 ### Notification
 
-`type` is `new_ranking` (someone ranked your template), `new_comment` or `new_like` (on your ranking). `actor` is who did it.
+`type` is `new_ranking` (someone ranked your template), `new_comment` or `new_like` (on your ranking), or `content_removed` (below). `actor` is who did it.
 
 ```json
 {
@@ -579,6 +642,24 @@ What everyone else sees of a user. It appears as `owner`, `author` and `actor` o
   }
 }
 ```
+
+A moderator removing something of yours gives a `content_removed` notification instead. It has no `actorId` and `actor` is `null`, so it never says which moderator. `removed` says what it was. `ranking` is the ranking a removed comment was on, and `null` for a removed template or ranking.
+
+```json
+{
+  "_id": "6721a6d4c2b8a1d4e5f60752",
+  "recipientId": "6721a3f0c2b8a1d4e5f60702",
+  "type": "content_removed",
+  "removed": { "kind": "comment", "title": "This list is garbage", "reason": "Personal attack" },
+  "rankingId": "6721a5c3c2b8a1d4e5f60731",
+  "read": false,
+  "createdAt": "2026-11-16T22:10:00.000Z",
+  "actor": null,
+  "ranking": { "_id": "6721a5c3c2b8a1d4e5f60731", "title": "Road trip picks", "template": { "_id": "6721a4b2c2b8a1d4e5f60711", "title": "Gas station snacks" } }
+}
+```
+
+`removed.kind` is `template`, `ranking` or `comment`, and `reason` only appears when the moderator gave one.
 
 ## Endpoint reference
 
@@ -878,6 +959,14 @@ Errors: `403` not the owner, `404`.
 
 Deletes the template with its items, every ranking of it, and their comments, likes and notifications.
 
+A moderator can also delete it if they can see it, and may say why. The reason goes in the owner's notification and the log:
+
+```json
+{ "reason": "Off-topic" }
+```
+
+The body is optional, and ignored when owners delete their own.
+
 Response `204`. Errors: `403`, `404`.
 
 ### POST /api/templates/:templateId/items
@@ -1022,6 +1111,14 @@ Errors: `400` `Every item must belong to the template being ranked`, `403` not t
 
 Deletes the ranking with its comments, likes and notifications, and recounts the template's `rankingCount`.
 
+A moderator can also delete it if they can see it, and may say why. The reason goes in the owner's notification and the log:
+
+```json
+{ "reason": "Off-topic" }
+```
+
+The body is optional, and ignored when owners delete their own.
+
 Response `204`. Errors: `403`, `404`.
 
 ### PUT /api/rankings/:rankingId/like and DELETE /api/rankings/:rankingId/like
@@ -1062,7 +1159,7 @@ Errors: `403` not the author, `404`.
 
 ### DELETE /api/comments/:commentId
 
-Allowed for the comment's author, and for the owner of the ranking it is on.
+Allowed for the comment's author, for the owner of the ranking it is on, and for moderators. A moderator removing someone else's comment may send `{ "reason": "..." }` as above.
 
 Response `204`. Errors: `403`, `404`.
 
@@ -1100,6 +1197,82 @@ Not built yet (`501`). The plan: the client asks for a ticket, uploads the image
 ```
 
 `kind` is `item`, `avatar` or `cover`. `contentType` is `image/jpeg`, `image/png` or `image/webp`.
+
+### GET /api/admin/users
+
+Moderators and admins only. `status=staff` lists moderators and admins, `status=banned` lists banned accounts, newest account first. `limit` and `cursor` as in Lists.
+
+Each entry is a Moderation view: the public profile plus `role`, and `bannedAt` and `banReason` while banned. No email or other private fields.
+
+```json
+{
+  "items": [
+    {
+      "_id": "6721a3f0c2b8a1d4e5f60703",
+      "username": "eve",
+      "role": "user",
+      "bannedAt": "2026-11-16T22:12:00.000Z",
+      "banReason": "Harassment",
+      "createdAt": "2026-11-15T17:28:23.200Z"
+    }
+  ],
+  "nextCursor": null
+}
+```
+
+### POST /api/admin/users/:username/ban
+
+Moderators and admins only. The reason is optional, up to 300 characters, and is shown to the banned person when they try to log in.
+
+```json
+{ "reason": "Harassment" }
+```
+
+Response `200`: the Moderation view. Banning someone already banned changes the reason.
+
+Errors: `400` banning yourself. `403` banning an admin, or a moderator unless you are an admin. `404` no such user.
+
+### DELETE /api/admin/users/:username/ban
+
+Moderators and admins only. Response `200`: the Moderation view, without `bannedAt`. Unbanning someone who isn't banned changes nothing.
+
+### PUT /api/admin/users/:username/role
+
+Admins only.
+
+```json
+{ "role": "moderator" }
+```
+
+Response `200`: the Moderation view. It applies to that person's next request.
+
+Errors: `400` changing your own role. `409` giving a banned account a role above user (unban them first). `404` no such user.
+
+### GET /api/admin/log
+
+Admins only. Every moderation action, newest first. `limit` and `cursor` as in Lists. `actor` is `null` for a role set with the setRole command on the server.
+
+```json
+{
+  "items": [
+    {
+      "_id": "6721a7e5c2b8a1d4e5f60761",
+      "actorId": "6721a3f0c2b8a1d4e5f60709",
+      "action": "delete_comment",
+      "targetUserId": "6721a3f0c2b8a1d4e5f60703",
+      "contentId": "6721a6a1c2b8a1d4e5f60741",
+      "summary": "This list is garbage",
+      "reason": "Personal attack",
+      "createdAt": "2026-11-16T22:10:00.000Z",
+      "actor": { "_id": "6721a3f0c2b8a1d4e5f60709", "username": "mod", "createdAt": "2026-11-15T17:28:23.200Z" },
+      "targetUser": { "_id": "6721a3f0c2b8a1d4e5f60703", "username": "eve", "createdAt": "2026-11-15T17:28:23.200Z" }
+    }
+  ],
+  "nextCursor": null
+}
+```
+
+`action` is `delete_template`, `delete_ranking`, `delete_comment`, `ban`, `unban` or `set_role`. For `set_role`, `summary` reads like `bob: user to moderator`.
 
 ### GET /api/health
 
@@ -1165,9 +1338,10 @@ For trying the API by hand rather than in tests, the sample data gives you accou
 | File | Covers |
 | --- | --- |
 | `app.test.js` | Health, 404s, invalid JSON, validation messages, bad tokens and cursors |
-| `routes.test.js` | Every route: guests get `401` where a token is needed, unwritten routes answer `501` |
+| `routes.test.js` | Every route: guests get `401` where a token is needed, unwritten routes answer `501`, admin routes refuse lower roles, banned accounts get `403` |
 | `lib.test.js` | Tokens, cursors, visibility rules, community ranking maths, notification switches |
 | `auth.integration.test.js` | Sign-up, verification, login, password reset, `/users/me` |
+| `moderation.integration.test.js` | Moderators deleting content, the owner's notice, bans, roles, the log, the setRole command |
 | `oauth.integration.test.js` | Google and Discord login, matching by verified email, taking over unverified sign-ups, linking and unlinking (providers faked) |
 | `models.integration.test.js` | Every model saves against the validators in `db/setup.js` |
 | `content.integration.test.js` | Templates, items, rankings, publishing, likes, community ranking, cascading deletes |

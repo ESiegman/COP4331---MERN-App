@@ -1,8 +1,13 @@
 import assert from 'node:assert/strict';
-import { test } from 'node:test';
+import { mock, test } from 'node:test';
 import request from 'supertest';
 import { createApp } from '../src/app.js';
 import { signToken } from '../src/lib/jwt.js';
+import { accounts } from '../src/middleware/auth.js';
+
+// Signed-in requests read the account from the database (middleware/auth.js). These tests have
+// none, so every token belongs to an ordinary account.
+mock.method(accounts, 'find', async () => ({ role: 'user' }));
 
 // These run without a database: every request here is answered before a query is made.
 

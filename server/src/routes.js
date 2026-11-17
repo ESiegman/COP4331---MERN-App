@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import adminRoutes from './modules/admin/admin.routes.js';
 import authRoutes from './modules/auth/auth.routes.js';
 import { commentsRouter } from './modules/comments/comments.routes.js';
 import notificationsRoutes from './modules/notifications/notifications.routes.js';
@@ -20,5 +21,6 @@ router.use('/rankings', rankingsRoutes);
 router.use('/comments', commentsRouter);
 router.use('/notifications', notificationsRoutes);
 router.use('/uploads', uploadsRoutes);
+router.use('/admin', adminRoutes);
 
 export default router;

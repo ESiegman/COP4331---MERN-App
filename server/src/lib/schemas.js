@@ -36,6 +36,10 @@ export const pageQuery = z.object({
 
 export const visibility = z.enum(VISIBILITIES);
 
+// An optional { reason } for a ban, or for a moderator deleting someone else's content.
+// A DELETE without a body is fine.
+export const reasonBody = z.object({ reason: text().trim().min(1).max(300).optional() });
+
 export const imageUrl = z.url({ protocol: /^https$/, error: 'must be an https URL' }).max(2000);
 
 // For PATCH bodies, where every field is optional but an empty body is a mistake

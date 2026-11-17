@@ -1,8 +1,10 @@
 import { KEEP_UPDATED_AT, withTransaction } from '../../lib/db.js';
 import { badRequest, forbidden, notFound } from '../../lib/errors.js';
 import { findPage } from '../../lib/pagination.js';
+import { isModerator } from '../../lib/roles.js';
 import { isOwner } from '../../lib/sharedContent.js';
 import { Comment, Ranking } from '../../models/index.js';
+import { removedByModerator } from '../admin/admin.service.js';
 import { notify } from '../notifications/notifications.service.js';
 import { findViewableRanking } from '../rankings/rankings.service.js';
 import { findPublicProfiles } from '../users/users.service.js';
@@ -74,18 +76,25 @@ export async function editComment(userId, commentId, body) {
 }
 
 // DELETE /comments/:commentId
-// Allowed for the comment's author, and for the owner of the ranking it is on.
-export async function deleteComment(userId, commentId) {
+// Allowed for the comment's author, for the owner of the ranking it is on, and for moderators.
+// A moderator removing someone else's comment is logged, and the author is told.
+export async function deleteComment(userId, commentId, { role, reason } = {}) {
   const { comment, ranking } = await findComment(userId, commentId);
-  if (!wrote(comment, userId) && !isOwner(ranking, userId)) {
+  const byModerator = !wrote(comment, userId) && !isOwner(ranking, userId);
+  if (byModerator && !isModerator(role)) {
     throw forbidden('Only the author or the ranking owner can delete this comment');
   }
 
-  await withTransaction(async () => {
+  const sendPush = await withTransaction(async () => {
     // The count only goes down if this request is the one that removed the comment
     const { deletedCount } = await Comment.deleteOne({ _id: comment._id });
-    if (deletedCount === 1) {
-      await Ranking.updateOne({ _id: ranking._id }, { $inc: { commentCount: -1 } }, KEEP_UPDATED_AT);
-    }
+    if (deletedCount === 0) return null;
+    await Ranking.updateOne({ _id: ranking._id }, { $inc: { commentCount: -1 } }, KEEP_UPDATED_AT);
+
+    if (!byModerator) return null;
+    return removedByModerator(userId, comment.authorId, {
+      kind: 'comment', contentId: comment._id, title: comment.body, reason, rankingId: ranking._id,
+    });
   });
+  await sendPush?.();
 }

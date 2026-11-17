@@ -16,6 +16,6 @@ export async function editComment(req, res) {
 }
 
 export async function deleteComment(req, res) {
-  await commentsService.deleteComment(req.userId, req.valid.params.commentId);
+  await commentsService.deleteComment(req.userId, req.valid.params.commentId, { role: req.userRole, reason: req.valid.body.reason });
   res.status(204).end();
 }

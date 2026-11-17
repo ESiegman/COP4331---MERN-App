@@ -1,6 +1,7 @@
 import mongoose from 'mongoose';
+import { ROLES } from './enums.js';
 
-const ACCOUNT_FIELDS = ['_id', 'username', 'email', 'emailVerified', 'displayName', 'bio', 'avatarUrl', 'notificationPrefs', 'createdAt'];
+const ACCOUNT_FIELDS = ['_id', 'username', 'email', 'emailVerified', 'role', 'displayName', 'bio', 'avatarUrl', 'notificationPrefs', 'createdAt'];
 const PROFILE_FIELDS = ['_id', 'username', 'displayName', 'bio', 'avatarUrl', 'createdAt'];
 
 const userSchema = new mongoose.Schema(
@@ -12,6 +13,11 @@ const userSchema = new mongoose.Schema(
     // Left out of query results unless asked for with .select('+passwordHash')
     passwordHash: { type: String, default: null, select: false },
     emailVerified: { type: Boolean, required: true, default: false },
+    // Accounts made before roles existed have none, which counts as 'user'
+    role: { type: String, enum: ROLES, default: 'user' },
+    // Set while the account is banned. Both stay unset otherwise.
+    bannedAt: Date,
+    banReason: { type: String, trim: true },
     // Optional text stays unset rather than null: the database validator rejects null for these three
     displayName: { type: String, trim: true },
     bio: { type: String, trim: true },

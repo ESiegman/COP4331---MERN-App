@@ -3,8 +3,10 @@ import { suggestItemNames } from '../../integrations/ai.js';
 import { KEEP_UPDATED_AT, withTransaction } from '../../lib/db.js';
 import { forbidden, notFound } from '../../lib/errors.js';
 import { findPage } from '../../lib/pagination.js';
+import { isModerator } from '../../lib/roles.js';
 import { canView, isOwner, shareUrl } from '../../lib/sharedContent.js';
 import { Comment, Item, Like, Notification, Ranking, Template } from '../../models/index.js';
+import { removedByModerator } from '../admin/admin.service.js';
 import { findPublicProfiles } from '../users/users.service.js';
 
 // TemplateService from the class diagram, plus Template.addItem / removeItem.
@@ -122,10 +124,13 @@ export async function updateTemplate(userId, templateId, changes) {
 
 // DELETE /templates/:templateId
 // MongoDB has no cascading deletes, so everything hanging off the template goes in one transaction.
-export async function deleteTemplate(userId, templateId) {
-  const template = await findOwnTemplate(userId, templateId);
+// A moderator can delete anyone's template they can see; that is logged and the owner is told.
+export async function deleteTemplate(userId, templateId, { role, reason } = {}) {
+  const template = await findViewableTemplate(userId, templateId);
+  const byModerator = !isOwner(template, userId);
+  if (byModerator && !isModerator(role)) throw forbidden('Only the owner can change this template');
 
-  await withTransaction(async () => {
+  const sendPush = await withTransaction(async () => {
     const rankingIds = await Ranking.find({ templateId: template._id }).distinct('_id');
     await Comment.deleteMany({ rankingId: { $in: rankingIds } });
     await Like.deleteMany({ rankingId: { $in: rankingIds } });
@@ -133,7 +138,11 @@ export async function deleteTemplate(userId, templateId) {
     await Ranking.deleteMany({ templateId: template._id });
     await Item.deleteMany({ templateId: template._id });
     await template.deleteOne();
+
+    if (!byModerator) return null;
+    return removedByModerator(userId, template.ownerId, { kind: 'template', contentId: template._id, title: template.title, reason });
   });
+  await sendPush?.();
 }
 
 // POST /templates/:templateId/items

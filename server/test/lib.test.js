@@ -6,6 +6,7 @@ import { canView, isOwner } from '../src/lib/sharedContent.js';
 import { createToken, hashToken } from '../src/lib/tokens.js';
 import { shouldNotify } from '../src/modules/notifications/notifications.service.js';
 import { spreadOverTiers } from '../src/modules/rankings/rankings.service.js';
+import { hasRole, isModerator, roleOf } from '../src/lib/roles.js';
 
 const ADA = '64b000000000000000000001';
 const BOB = '64b000000000000000000002';
@@ -79,4 +80,14 @@ test('notifications respect the switches and never go to the person who acted', 
   assert.equal(shouldNotify(ada, BOB, 'new_comment'), true);
   assert.equal(shouldNotify(ada, BOB, 'new_like'), false);
   assert.equal(shouldNotify(ada, ADA, 'new_ranking'), false);
+});
+
+test('roles: each one includes the ones below it, and no role means user', () => {
+  assert.equal(hasRole('admin', 'moderator'), true);
+  assert.equal(hasRole('moderator', 'moderator'), true);
+  assert.equal(hasRole('moderator', 'admin'), false);
+  assert.equal(hasRole(undefined, 'moderator'), false);
+  assert.equal(isModerator('user'), false);
+  assert.equal(roleOf({}), 'user');
+  assert.equal(roleOf({ role: 'admin' }), 'admin');
 });

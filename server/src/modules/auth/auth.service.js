@@ -7,6 +7,7 @@ import { withTransaction } from '../../lib/db.js';
 import { badRequest, conflict, forbidden, notFound, unauthorized } from '../../lib/errors.js';
 import { signToken } from '../../lib/jwt.js';
 import { logger } from '../../lib/logger.js';
+import { banned } from '../../lib/roles.js';
 import { createToken, hashToken, hoursFromNow } from '../../lib/tokens.js';
 import { AuthToken, OAuthAccount, User } from '../../models/index.js';
 import { RESERVED_USERNAMES } from './auth.schemas.js';
@@ -39,6 +40,12 @@ async function redeemToken(token, type) {
   );
   if (!record) throw badRequest('This link is invalid or has expired');
   return record;
+}
+
+// Every way of logging in ends here. A banned account gets no token.
+async function issueLogin(user) {
+  if (user.bannedAt) throw banned(user);
+  return { token: await signToken(user._id), user };
 }
 
 // By the time an email goes out the account or token is already saved, so a failing email
@@ -78,7 +85,7 @@ export async function verifyEmail(token) {
   });
   if (!user) throw badRequest('This link is invalid or has expired');
 
-  return { token: await signToken(user._id), user };
+  return issueLogin(user);
 }
 
 // POST /auth/resend-verification. Quietly does nothing for unknown or already verified
@@ -102,7 +109,7 @@ export async function login({ email, password }) {
   if (!user.emailVerified) {
     throw forbidden('Verify your email before logging in', 'EMAIL_NOT_VERIFIED');
   }
-  return { token: await signToken(user._id), user };
+  return issueLogin(user);
 }
 
 // POST /auth/forgot-password. Quietly does nothing for unknown addresses, as above.
@@ -218,7 +225,7 @@ async function findOrCreateOAuthUser(provider, identity) {
 export async function loginWithOAuth(provider, input) {
   const identity = await exchangeCode(provider, input);
   const user = await retryOnDuplicate(() => findOrCreateOAuthUser(provider, identity));
-  return { token: await signToken(user._id), user };
+  return issueLogin(user);
 }
 
 /**

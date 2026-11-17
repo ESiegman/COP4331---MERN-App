@@ -31,6 +31,9 @@ try {
           email: { bsonType: 'string' },
           passwordHash: { bsonType: ['string', 'null'] }, // null for OAuth-only users
           emailVerified: { bsonType: 'bool' },
+          role: { enum: ['user', 'moderator', 'admin'] }, // missing counts as user
+          bannedAt: { bsonType: 'date' },
+          banReason: { bsonType: 'string' },
           displayName: { bsonType: 'string' },
           bio: { bsonType: 'string' },
           avatarUrl: { bsonType: 'string' },
@@ -198,17 +201,43 @@ try {
     notifications: {
       schema: {
         bsonType: 'object',
-        required: ['recipientId', 'actorId', 'type', 'rankingId', 'read'],
+        required: ['recipientId', 'actorId', 'type', 'read'],
         properties: {
           recipientId: oid,
           actorId: oid,
-          type: { enum: ['new_ranking', 'new_comment', 'new_like'] },
-          rankingId: oid,
+          type: { enum: ['new_ranking', 'new_comment', 'new_like', 'content_removed'] },
+          rankingId: oid, // every type has one except content_removed of a template or ranking
+          removed: {
+            bsonType: 'object',
+            required: ['kind', 'title'],
+            properties: {
+              kind: { enum: ['template', 'ranking', 'comment'] },
+              title: { bsonType: 'string' },
+              reason: { bsonType: 'string' },
+            },
+          },
           read: { bsonType: 'bool' },
           createdAt: { bsonType: 'date' },
         },
       },
       indexes: [{ key: { recipientId: 1, read: 1, createdAt: -1 } }],
+    },
+
+    moderationlogs: {
+      schema: {
+        bsonType: 'object',
+        required: ['action', 'targetUserId', 'summary', 'createdAt'],
+        properties: {
+          actorId: oid, // unset when a role was given with the setRole command
+          action: { enum: ['delete_template', 'delete_ranking', 'delete_comment', 'ban', 'unban', 'set_role'] },
+          targetUserId: oid,
+          contentId: oid,
+          summary: { bsonType: 'string' },
+          reason: { bsonType: 'string' },
+          createdAt: { bsonType: 'date' },
+        },
+      },
+      indexes: [{ key: { createdAt: -1, _id: -1 } }],
     },
   };
 

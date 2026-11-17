@@ -20,19 +20,21 @@ erDiagram
     rankings ||--o{ comments : has
     rankings ||--o{ likes : has
     rankings ||--o{ notifications : about
+    users ||--o{ moderationlogs : "acts in or is the target of"
 ```
 
 | Collection | Holds | Unique index |
 | --- | --- | --- |
-| `users` | Accounts, with their notification switches and push tokens | `username`, and `email` |
-| `oauthaccounts` | Google and Discord logins linked to a user | `provider` + `providerUserId` |
+| `users` | Accounts, with their role (user, moderator or admin), any ban, notification switches and push tokens | `username`, and `email` |
+| `oauthaccounts` | Google and Discord logins linked to a user | `provider` + `providerUserId`, and `userId` + `provider` |
 | `authtokens` | One-time tokens behind email verification and password reset links. MongoDB deletes them once `expiresAt` has passed | |
 | `templates` | The things being ranked, like "Gas station snacks" | |
 | `items` | What gets ranked inside a template | |
 | `rankings` | One person's tier list for a template. Its tiers are stored inside it | `templateId` + `ownerId` |
 | `comments` | Comments on a ranking. `updatedAt` moves past `createdAt` when one is edited | |
 | `likes` | One like per user per ranking | `rankingId` + `userId` |
-| `notifications` | "Someone ranked, liked or commented on your content" | |
+| `notifications` | "Someone ranked, liked or commented on your content", or "a moderator removed your content" | |
+| `moderationlogs` | Every moderator and admin action: removed content, bans, role changes | |
 
 `db/setup.js` has every field. For each collection it lists a `schema`, which MongoDB uses to check every write, and its `indexes`. The same fields are drawn as a diagram in [server/README.md](../server/README.md#data-model).
 

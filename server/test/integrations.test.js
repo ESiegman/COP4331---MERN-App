@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { test } from 'node:test';
+import { mock, test } from 'node:test';
 import Anthropic from '@anthropic-ai/sdk';
 import request from 'supertest';
 import { createApp } from '../src/app.js';
@@ -8,7 +8,12 @@ import { aiClient, cleanSuggestions, suggestItemNames } from '../src/integration
 import { exchangeCode } from '../src/integrations/oauth.js';
 import { sendToExpo } from '../src/integrations/push.js';
 import { signToken } from '../src/lib/jwt.js';
+import { accounts } from '../src/middleware/auth.js';
 import { configureProviders, fakeProviders, REDIRECT_URI, signIn } from './fakeOAuth.js';
+
+// Signed-in requests read the account from the database (middleware/auth.js). These tests have
+// none, so every token belongs to an ordinary account.
+mock.method(accounts, 'find', async () => ({ role: 'user' }));
 
 // The outside services, with the network replaced. No database needed.
 
