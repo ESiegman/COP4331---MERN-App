@@ -251,3 +251,39 @@
   .tier-label { font-size: 1.1rem; }
   .item-tile { width: 64px; height: 64px; }
 }
+
+/* Footer */
+.site-footer {
+  border-top: 1px solid var(--line);
+  padding: 1rem 0;
+  color: var(--ink-soft);
+}
+.site-footer a { color: inherit; }
+
+/* Privacy policy and terms: a comfortable reading width */
+.legal { max-width: 720px; }
+.legal h2 { margin-top: 1.75rem; }
+
+/* The "or use your email" line under the Google and Discord buttons */
+.or-divider {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-top: 1.25rem;
+  color: var(--ink-soft);
+  font-size: 0.85rem;
+}
+.or-divider::before,
+.or-divider::after {
+  content: "";
+  flex: 1;
+  border-top: 1px solid var(--line);
+}
+
+/* The Share menu on ranking and template pages */
+.share-menu {
+  right: 0;
+  left: auto;
+  min-width: 14rem;
+  margin-top: 0.25rem;
+}

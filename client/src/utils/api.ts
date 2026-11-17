@@ -1,5 +1,5 @@
 import { buildPath } from "./buildPath";
-import { SESSION_EXPIRED_EVENT, clearSession, getSession } from "./session";
+import { SESSION_EXPIRED_EVENT, clearSession, getSession, type SessionEndedDetail } from "./session";
 
 // What the API sends back: the parsed JSON body, plus whether it succeeded
 export interface ApiResult<T> {
@@ -47,11 +47,21 @@ export async function apiFetch<T>(
   }
   const body = data as { error?: string; code?: string } | null;
 
-  // A 401 on a route that needs a token means the saved token expired or was rejected
-  if (response.status === 401 && session) {
+  // A 401 on a route that needs a token means the saved token expired or was rejected.
+  // A 403 ACCOUNT_BANNED means a moderator banned this account: its tokens stop working at once.
+  // Either way the session is over. AuthProvider logs the user out and SessionExpiryWatcher goes
+  // to /login with a message, with no page reload.
+  if (session && (response.status === 401 || (response.status === 403 && body?.code === "ACCOUNT_BANNED"))) {
     clearSession();
-    // AuthProvider logs the user out and SessionExpiryWatcher goes to /login, with no page reload
-    window.dispatchEvent(new Event(SESSION_EXPIRED_EVENT));
+    const banned = response.status === 403;
+    window.dispatchEvent(
+      new CustomEvent<SessionEndedDetail>(SESSION_EXPIRED_EVENT, {
+        detail: {
+          message: banned ? body?.error ?? "This account has been banned." : "Your session expired. Please log in again.",
+          kind: banned ? "error" : "info",
+        },
+      })
+    );
   }
 
   return {

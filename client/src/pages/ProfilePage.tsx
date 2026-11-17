@@ -8,15 +8,24 @@ import TemplateCard from "../components/TemplateCard";
 import { apiFetch } from "../utils/api";
 import { useAuth } from "../utils/useAuth";
 import { formatDate, nameOf } from "../utils/format";
-import type { PublicProfile, Ranking, Template } from "../utils/types";
+import type { ModerationUser, Page, PublicProfile, Ranking, Template } from "../utils/types";
+import { isModerator } from "../utils/roles";
+import { useConfirm } from "../utils/useConfirm";
 import { usePagedList } from "../utils/usePagedList";
 
 function ProfileView({ username }: { username: string }) {
   const { user } = useAuth();
+  const { confirmWithReason, dialog } = useConfirm();
+  const [modMessage, setModMessage] = useState("");
+  const [modError, setModError] = useState("");
   const [profile, setProfile] = useState<PublicProfile | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [tab, setTab] = useState<"rankings" | "templates">("rankings");
+
+  // For moderators: is this account banned? The public profile doesn't say, so look in the banned list.
+  // null means not known (yet), and then both buttons show.
+  const [banned, setBanned] = useState<boolean | null>(null);
 
   const rankings = usePagedList<Ranking>(username ? `api/users/${username}/rankings` : null, 9);
   const templates = usePagedList<Template>(username ? `api/users/${username}/templates` : null, 9);
@@ -33,6 +42,37 @@ function ProfileView({ username }: { username: string }) {
       cancelled = true;
     };
   }, [username]);
+
+  const moderator = isModerator(user);
+  const profileId = profile?._id;
+  const myId = user?._id;
+  useEffect(() => {
+    if (!moderator || !profileId || profileId === myId) return;
+    let cancelled = false;
+    async function look() {
+      let cursor: string | null = null;
+      // The banned list is short; stop after 10 pages (500 accounts) rather than loop forever
+      for (let page = 0; page < 10; page++) {
+        const res: Awaited<ReturnType<typeof apiFetch<Page<ModerationUser>>>> = await apiFetch<Page<ModerationUser>>(
+          `api/admin/users?status=banned&limit=50${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""}`
+        );
+        if (cancelled || !res.ok) return;
+        if (res.data.items.some((u) => u._id === profileId)) {
+          setBanned(true);
+          return;
+        }
+        cursor = res.data.nextCursor;
+        if (!cursor) {
+          setBanned(false);
+          return;
+        }
+      }
+    }
+    void look();
+    return () => {
+      cancelled = true;
+    };
+  }, [moderator, profileId, myId]);
 
   if (loading) {
     return (
@@ -51,6 +91,34 @@ function ProfileView({ username }: { username: string }) {
   }
 
   const isMe = user?._id === profile._id;
+
+  async function ban() {
+    const reason = await confirmWithReason({
+      title: `Ban @${profile?.username}?`,
+      message: "They won't be able to log in or use their account until unbanned. Their content stays up.",
+      confirmLabel: "Ban",
+    });
+    if (reason === null) return;
+    setModMessage("");
+    setModError("");
+    const res = await apiFetch<null>(`api/admin/users/${encodeURIComponent(profile?.username ?? "")}/ban`, { method: "POST", body: reason ? { reason } : {} });
+    if (res.ok) {
+      setModMessage(`@${profile?.username} is banned.`);
+      setBanned(true);
+    }
+    else setModError(res.error ?? "Could not ban this account");
+  }
+
+  async function unban() {
+    setModMessage("");
+    setModError("");
+    const res = await apiFetch<null>(`api/admin/users/${encodeURIComponent(profile?.username ?? "")}/ban`, { method: "DELETE" });
+    if (res.ok) {
+      setModMessage(`@${profile?.username} is no longer banned.`);
+      setBanned(false);
+    }
+    else setModError(res.error ?? "Could not unban this account");
+  }
   const list = tab === "rankings" ? rankings : templates;
 
   return (
@@ -63,7 +131,16 @@ function ProfileView({ username }: { username: string }) {
           {profile.bio && <p className="mb-0 mt-2">{profile.bio}</p>}
         </div>
         {isMe && <Link to="/settings" className="btn btn-outline-primary btn-sm">Edit profile</Link>}
+        {isModerator(user) && !isMe && (
+          <div className="d-flex gap-2">
+            {banned && <span className="badge text-bg-danger align-self-center">Banned</span>}
+            {banned !== true && <button type="button" className="btn btn-sm btn-outline-danger" onClick={() => void ban()}>Ban…</button>}
+            {banned !== false && <button type="button" className="btn btn-sm btn-outline-secondary" onClick={() => void unban()}>Unban</button>}
+          </div>
+        )}
       </div>
+      {modError && <Notice kind="error">{modError}</Notice>}
+      {modMessage && <Notice kind="success">{modMessage}</Notice>}
 
       <ul className="nav nav-tabs mb-3">
         <li className="nav-item">
@@ -89,6 +166,7 @@ function ProfileView({ username }: { username: string }) {
             ))}
       </div>
       <LoadMore hasMore={list.hasMore} loading={list.loading} onClick={list.loadMore} />
+      {dialog}
     </main>
   );
 }

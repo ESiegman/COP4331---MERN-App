@@ -4,6 +4,7 @@ import { apiFetch } from "../utils/api";
 import { useAuth } from "../utils/useAuth";
 import { nameOf, timeAgo } from "../utils/format";
 import type { Comment } from "../utils/types";
+import { isModerator } from "../utils/roles";
 import { useConfirm } from "../utils/useConfirm";
 import { usePagedList } from "../utils/usePagedList";
 import Avatar from "./Avatar";
@@ -12,7 +13,7 @@ import Notice from "./Notice";
 
 function CommentSection({ rankingId, ownerId }: { rankingId: string; ownerId: string }) {
   const { user } = useAuth();
-  const { confirm, dialog } = useConfirm();
+  const { confirm, confirmWithReason, dialog } = useConfirm();
   const list = usePagedList<Comment>(`api/rankings/${rankingId}/comments`, 20);
   const [body, setBody] = useState("");
   const [sending, setSending] = useState(false);
@@ -57,9 +58,19 @@ function CommentSection({ rankingId, ownerId }: { rankingId: string; ownerId: st
     setSavingEdit(false);
   }
 
-  async function remove(id: string) {
-    if (!(await confirm({ title: "Delete comment?", message: "This comment will be removed for everyone.", confirmLabel: "Delete" }))) return;
-    const res = await apiFetch<null>(`api/comments/${id}`, { method: "DELETE" });
+  async function remove(comment: Comment) {
+    // A moderator removing someone else's comment may say why. The author is told.
+    const asModerator = isModerator(user) && user?._id !== comment.authorId && user?._id !== ownerId;
+    let reason = "";
+    if (asModerator) {
+      const answer = await confirmWithReason({ title: "Remove this comment?", message: "It will be removed for everyone, and its author will be notified.", confirmLabel: "Remove" });
+      if (answer === null) return;
+      reason = answer;
+    } else if (!(await confirm({ title: "Delete comment?", message: "This comment will be removed for everyone.", confirmLabel: "Delete" }))) {
+      return;
+    }
+    const id = comment._id;
+    const res = await apiFetch<null>(`api/comments/${id}`, { method: "DELETE", body: reason ? { reason } : undefined });
     if (res.ok) list.setItems((current) => current.filter((c) => c._id !== id));
     else setError(res.error ?? "Could not delete the comment");
   }
@@ -74,8 +85,9 @@ function CommentSection({ rankingId, ownerId }: { rankingId: string; ownerId: st
       )}
 
       {list.items.map((comment) => {
-        // The author can delete their comment, and so can the ranking's owner
-        const canDelete = user && (user._id === comment.authorId || user._id === ownerId);
+        // The author can delete their comment, and so can the ranking's owner and any moderator
+        const canDelete = user && (user._id === comment.authorId || user._id === ownerId || isModerator(user));
+        const edited = Boolean(comment.updatedAt) && new Date(comment.updatedAt as string).getTime() > new Date(comment.createdAt).getTime();
         // Only the author can edit
         const canEdit = user && user._id === comment.authorId;
         const isEditing = editingId === comment._id;
@@ -90,6 +102,7 @@ function CommentSection({ rankingId, ownerId }: { rankingId: string; ownerId: st
                   <span className="fw-semibold">Deleted user</span>
                 )}
                 <span className="muted ms-2">{timeAgo(comment.createdAt)}</span>
+                {edited && <span className="muted ms-1">(edited)</span>}
               </div>
               {isEditing ? (
                 <div className="mt-1">
@@ -132,7 +145,7 @@ function CommentSection({ rankingId, ownerId }: { rankingId: string; ownerId: st
                   <button
                     type="button"
                     className="btn btn-sm btn-outline-danger"
-                    onClick={() => remove(comment._id)}
+                    onClick={() => void remove(comment)}
                     aria-label="Delete comment"
                   >
                     <i className="bi bi-trash3" aria-hidden="true"></i>

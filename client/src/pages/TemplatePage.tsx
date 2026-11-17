@@ -9,6 +9,7 @@ import TierBoard from "../components/TierBoard";
 import { boardFrom } from "../utils/board";
 import { apiFetch } from "../utils/api";
 import { useAuth } from "../utils/useAuth";
+import { isModerator } from "../utils/roles";
 import { useConfirm } from "../utils/useConfirm";
 import { formatDate, nameOf } from "../utils/format";
 import type { Item, Ranking, Template, Tier, TemplateDetail, Visibility } from "../utils/types";
@@ -17,7 +18,7 @@ import { usePagedList } from "../utils/usePagedList";
 function TemplatePage() {
   const { templateId } = useParams();
   const { user } = useAuth();
-  const { confirm, dialog } = useConfirm();
+  const { confirm, confirmWithReason, dialog } = useConfirm();
   const navigate = useNavigate();
 
   const [detail, setDetail] = useState<TemplateDetail | null>(null);
@@ -32,10 +33,11 @@ function TemplatePage() {
 
   // Editing the template's details, and renaming one item at a time
   const [editing, setEditing] = useState(false);
-  const [form, setForm] = useState<{ title: string; description: string; category: string; visibility: Visibility }>({
+  const [form, setForm] = useState<{ title: string; description: string; category: string; tierLabels: string; visibility: Visibility }>({
     title: "",
     description: "",
     category: "",
+    tierLabels: "",
     visibility: "public",
   });
   const [editingItemId, setEditingItemId] = useState<string | null>(null);
@@ -102,12 +104,17 @@ function TemplatePage() {
   function startEditing() {
     if (!detail) return;
     const t = detail.template;
-    setForm({ title: t.title, description: t.description ?? "", category: t.category ?? "", visibility: t.visibility });
+    setForm({ title: t.title, description: t.description ?? "", category: t.category ?? "", tierLabels: t.tierLabels.join(", "), visibility: t.visibility });
     setEditing(true);
   }
 
   async function saveTemplate(e: FormEvent) {
     e.preventDefault();
+    const labels = form.tierLabels.split(",").map((label) => label.trim()).filter(Boolean);
+    if (labels.length === 0 || labels.length > 12 || labels.some((label) => label.length > 20)) {
+      setError("Give between 1 and 12 tier names of up to 20 characters, separated by commas.");
+      return;
+    }
     setBusy(true);
     setError("");
     const res = await apiFetch<Template>(`api/templates/${templateId}`, {
@@ -116,6 +123,7 @@ function TemplatePage() {
         title: form.title.trim(),
         description: form.description.trim(),
         category: form.category.trim(),
+        tierLabels: labels,
         visibility: form.visibility,
       },
     });
@@ -160,9 +168,20 @@ function TemplatePage() {
     else setError(res.error ?? "Could not remove the item");
   }
 
-  async function deleteTemplate() {
-    if (!(await confirm({ title: "Delete template?", message: "This deletes the template and every ranking of it. This can't be undone.", confirmLabel: "Delete" }))) return;
-    const res = await apiFetch<null>(`api/templates/${templateId}`, { method: "DELETE" });
+  async function deleteTemplate(asModerator: boolean) {
+    let reason = "";
+    if (asModerator) {
+      const answer = await confirmWithReason({
+        title: "Remove this template?",
+        message: "This removes the template and every ranking of it. Its owner will be notified.",
+        confirmLabel: "Remove",
+      });
+      if (answer === null) return;
+      reason = answer;
+    } else if (!(await confirm({ title: "Delete template?", message: "This deletes the template and every ranking of it. This can't be undone.", confirmLabel: "Delete" }))) {
+      return;
+    }
+    const res = await apiFetch<null>(`api/templates/${templateId}`, { method: "DELETE", body: reason ? { reason } : undefined });
     if (res.ok) navigate("/");
     else setError(res.error ?? "Could not delete the template");
   }
@@ -185,6 +204,7 @@ function TemplatePage() {
 
   const { template, owner } = detail;
   const isOwner = user?._id === template.ownerId;
+  const canModerate = isModerator(user) && !isOwner;
 
   return (
     <main className="page">
@@ -207,7 +227,15 @@ function TemplatePage() {
               <i className="bi bi-pencil me-1" aria-hidden="true"></i>Edit
             </button>
           )}
-          <ShareButton url={detail.shareUrl} />
+          {canModerate && (
+            <button type="button" className="btn btn-sm btn-outline-danger" onClick={() => void deleteTemplate(true)}>
+              <i className="bi bi-shield-x me-1" aria-hidden="true"></i>Remove
+            </button>
+          )}
+          <ShareButton
+            url={detail.shareUrl}
+            image={communityBoard && community && community.rankingCount > 0 ? { title: `${template.title}: community ranking`, board: { ...communityBoard, pool: [] }, items } : undefined}
+          />
           <button type="button" className="btn btn-primary" onClick={startRanking} disabled={busy || items.length === 0}>
             Rank this
           </button>
@@ -239,6 +267,11 @@ function TemplatePage() {
                 <option value="private">Only me</option>
               </select>
             </div>
+          </div>
+          <div className="mb-3">
+            <label htmlFor="editTiers" className="form-label fw-semibold">Tier names, best to worst</label>
+            <input id="editTiers" className="form-control" value={form.tierLabels} onChange={(e) => setForm({ ...form, tierLabels: e.target.value })} />
+            <div className="form-text">Separate with commas. This only changes rankings started after you save: existing rankings keep their own tiers.</div>
           </div>
           <div className="d-flex gap-2">
             <button type="submit" className="btn btn-primary" disabled={busy || !form.title.trim()}>Save changes</button>
@@ -328,7 +361,7 @@ function TemplatePage() {
               </div>
             </form>
             <div className="mt-4">
-              <button type="button" className="btn btn-sm btn-outline-danger" onClick={deleteTemplate}>
+              <button type="button" className="btn btn-sm btn-outline-danger" onClick={() => void deleteTemplate(false)}>
                 Delete template
               </button>
             </div>

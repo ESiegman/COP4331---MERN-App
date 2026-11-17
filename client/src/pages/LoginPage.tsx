@@ -1,6 +1,7 @@
 import { useState, type FormEvent } from "react";
-import { Navigate, useLocation, useSearchParams } from "react-router-dom";
+import { Link, Navigate, useLocation, useSearchParams } from "react-router-dom";
 import Notice from "../components/Notice";
+import OAuthButtons from "../components/OAuthButtons";
 import { apiFetch } from "../utils/api";
 import { useAuth } from "../utils/useAuth";
 import type { AuthResponse } from "../utils/types";
@@ -11,7 +12,8 @@ function LoginPage() {
   const { user, signIn } = useAuth();
   const location = useLocation();
   const [params, setParams] = useSearchParams();
-  const goBackTo = (location.state as { from?: string } | null)?.from ?? "/";
+  const routeState = location.state as { from?: string; notice?: string; noticeKind?: "error" | "info" } | null;
+  const goBackTo = routeState?.from ?? "/";
 
   // The URL decides the mode (/login, /login?mode=register, /login?mode=forgot), so the navbar
   // links and the links under the form all work, even while this page is already showing.
@@ -97,6 +99,10 @@ function LoginPage() {
       <div className="panel w-100" style={{ maxWidth: 440 }}>
         <h1 className="h3 mb-4">{title}</h1>
 
+        {routeState?.notice && <Notice kind={routeState.noticeKind === "error" ? "error" : "info"}>{routeState.notice}</Notice>}
+
+        {mode !== "forgot" && <OAuthButtons from={routeState?.from} />}
+
         <form onSubmit={submit} noValidate={false}>
           {mode === "register" && (
             <div className="mb-3">
@@ -161,6 +167,12 @@ function LoginPage() {
           <button type="submit" className="btn btn-primary w-100" disabled={busy}>
             {busy ? "Please wait…" : action}
           </button>
+
+          {mode === "register" && (
+            <p className="small muted mt-3 mb-0">
+              By signing up you agree to the <Link to="/terms">terms</Link> and accept the <Link to="/privacy">privacy policy</Link>.
+            </p>
+          )}
         </form>
 
         <div className="mt-4 small d-flex flex-column gap-1">
