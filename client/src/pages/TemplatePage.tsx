@@ -9,6 +9,7 @@ import TierBoard from "../components/TierBoard";
 import { boardFrom } from "../utils/board";
 import { apiFetch } from "../utils/api";
 import { useAuth } from "../utils/useAuth";
+import { useConfirm } from "../utils/useConfirm";
 import { formatDate, nameOf } from "../utils/format";
 import type { Item, Ranking, Tier, TemplateDetail } from "../utils/types";
 import { usePagedList } from "../utils/usePagedList";
@@ -16,6 +17,7 @@ import { usePagedList } from "../utils/usePagedList";
 function TemplatePage() {
   const { templateId } = useParams();
   const { user } = useAuth();
+  const { confirm, dialog } = useConfirm();
   const navigate = useNavigate();
 
   const [detail, setDetail] = useState<TemplateDetail | null>(null);
@@ -86,14 +88,14 @@ function TemplatePage() {
   }
 
   async function removeItem(itemId: string) {
-    if (!window.confirm("Remove this item? It will also come out of every ranking.")) return;
+    if (!(await confirm({ title: "Remove item?", message: "It will also come out of every ranking.", confirmLabel: "Remove" }))) return;
     const res = await apiFetch<null>(`api/templates/${templateId}/items/${itemId}`, { method: "DELETE" });
     if (res.ok) setDetail((d) => (d ? { ...d, items: d.items.filter((i) => i._id !== itemId) } : d));
     else setError(res.error ?? "Could not remove the item");
   }
 
   async function deleteTemplate() {
-    if (!window.confirm("Delete this template and every ranking of it? This can't be undone.")) return;
+    if (!(await confirm({ title: "Delete template?", message: "This deletes the template and every ranking of it. This can't be undone.", confirmLabel: "Delete" }))) return;
     const res = await apiFetch<null>(`api/templates/${templateId}`, { method: "DELETE" });
     if (res.ok) navigate("/");
     else setError(res.error ?? "Could not delete the template");
@@ -209,6 +211,7 @@ function TemplatePage() {
           </>
         )}
       </section>
+      {dialog}
     </main>
   );
 }

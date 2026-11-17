@@ -9,6 +9,7 @@ import TierBoard from "../components/TierBoard";
 import { boardFrom, type Board } from "../utils/board";
 import { apiFetch } from "../utils/api";
 import { useAuth } from "../utils/useAuth";
+import { useConfirm } from "../utils/useConfirm";
 import { nameOf, timeAgo } from "../utils/format";
 import type { RankingDetail, Visibility } from "../utils/types";
 
@@ -20,6 +21,7 @@ type SaveState = "idle" | "saving" | "saved" | "error";
 function RankingPage() {
   const { rankingId } = useParams();
   const { user } = useAuth();
+  const { confirm, dialog } = useConfirm();
   const navigate = useNavigate();
 
   const [detail, setDetail] = useState<RankingDetail | null>(null);
@@ -131,7 +133,7 @@ function RankingPage() {
   }, [rankingId]);
 
   async function deleteRanking() {
-    if (!window.confirm("Delete this ranking? This can't be undone.")) return;
+    if (!(await confirm({ title: "Delete ranking?", message: "This can't be undone.", confirmLabel: "Delete" }))) return;
     if (timer.current !== null) {
       window.clearTimeout(timer.current);
       timer.current = null;
@@ -257,6 +259,7 @@ function RankingPage() {
       )}
 
       {!isDraft && <CommentSection rankingId={ranking._id} ownerId={ranking.ownerId} />}
+      {dialog}
     </main>
   );
 }

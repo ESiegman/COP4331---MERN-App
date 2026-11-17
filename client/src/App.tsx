@@ -3,6 +3,7 @@ import "./App.css";
 
 import Navbar from "./components/Navbar";
 import RequireLogin from "./components/RequireLogin";
+import SessionExpiryWatcher from "./components/SessionExpiryWatcher";
 import CreateTemplatePage from "./pages/CreateTemplatePage";
 import HomePage from "./pages/HomePage";
 import LoginPage from "./pages/LoginPage";
@@ -21,6 +22,7 @@ function App() {
   return (
     <AuthProvider>
       <Router>
+        <SessionExpiryWatcher />
         <Navbar />
         <Routes>
           <Route path="/" element={<HomePage />} />
