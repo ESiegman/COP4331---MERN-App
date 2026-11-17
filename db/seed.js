@@ -370,10 +370,11 @@ function buildSampleData(passwordHash, now) {
     docs.rankings.push(ranking);
     if (spec.note) highlights.push({ note: spec.note, path: `/api/rankings/${ranking._id}` });
 
-    // Drafts and private rankings get no attention from anyone else
+    // Drafts and private rankings get no attention from anyone else. rankingCount counts
+    // published public rankings, like the API (none at all for a private template)
     if (!publishedAt) continue;
-    template.rankingCount += 1;
-    if (visibility === 'private') continue;
+    if (visibility === 'public' && template.visibility !== 'private') template.rankingCount += 1;
+    if (visibility === 'private' || template.visibility === 'private') continue;
     notify(template.ownerId, owner, 'new_ranking', ranking, publishedAt);
 
     const others = activeUsers.filter((user) => !user._id.equals(owner._id));
@@ -395,18 +396,21 @@ function buildSampleData(passwordHash, now) {
         authorId: author._id,
         body: writeComment(COMMENTS, ranking.tiers, items, rand),
         createdAt: commentedAt,
+        updatedAt: commentedAt,
       });
       ranking.commentCount += 1;
       notify(owner._id, author, 'new_comment', ranking, commentedAt);
 
       // Sometimes the owner answers
       if (rand() < 0.3) {
+        const repliedAt = new Date(Math.min(commentedAt.getTime() + (5 + rand() * 55) * MINUTE, now - MINUTE));
         docs.comments.push({
           _id: nextId('comments'),
           rankingId: ranking._id,
           authorId: owner._id,
           body: writeComment(REPLIES, ranking.tiers, items, rand),
-          createdAt: new Date(Math.min(commentedAt.getTime() + (5 + rand() * 55) * MINUTE, now - MINUTE)),
+          createdAt: repliedAt,
+          updatedAt: repliedAt,
         });
         ranking.commentCount += 1;
       }

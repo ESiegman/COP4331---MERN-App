@@ -110,6 +110,7 @@ try {
         { key: { title: 'text', description: 'text', category: 'text' } },
         { key: { ownerId: 1 } },
         { key: { visibility: 1, createdAt: -1 } },
+        { key: { visibility: 1, rankingCount: -1, _id: -1 } }, // most ranked first
       ],
     },
 
@@ -160,6 +161,8 @@ try {
         { key: { templateId: 1, ownerId: 1 }, unique: true }, // one ranking per person per template
         { key: { ownerId: 1 } },
         { key: { templateId: 1, visibility: 1 } },
+        { key: { visibility: 1, publishedAt: -1, _id: -1 } }, // the feed, newest first
+        { key: { visibility: 1, likeCount: -1, _id: -1 } }, // the feed, most liked first
       ],
     },
 
@@ -172,6 +175,7 @@ try {
           authorId: oid,
           body: { bsonType: 'string' },
           createdAt: { bsonType: 'date' },
+          updatedAt: { bsonType: 'date' }, // later than createdAt once the comment is edited
         },
       },
       indexes: [{ key: { rankingId: 1, createdAt: 1 } }],
