@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import Avatar from "../components/Avatar";
+import ImageField from "../components/ImageField";
 import LoadMore from "../components/LoadMore";
 import Notice from "../components/Notice";
 import RankingCard from "../components/RankingCard";
@@ -33,10 +34,11 @@ function TemplatePage() {
 
   // Editing the template's details, and renaming one item at a time
   const [editing, setEditing] = useState(false);
-  const [form, setForm] = useState<{ title: string; description: string; category: string; tierLabels: string; visibility: Visibility }>({
+  const [form, setForm] = useState<{ title: string; description: string; category: string; coverImageUrl: string; tierLabels: string; visibility: Visibility }>({
     title: "",
     description: "",
     category: "",
+    coverImageUrl: "",
     tierLabels: "",
     visibility: "public",
   });
@@ -104,7 +106,7 @@ function TemplatePage() {
   function startEditing() {
     if (!detail) return;
     const t = detail.template;
-    setForm({ title: t.title, description: t.description ?? "", category: t.category ?? "", tierLabels: t.tierLabels.join(", "), visibility: t.visibility });
+    setForm({ title: t.title, description: t.description ?? "", category: t.category ?? "", coverImageUrl: t.coverImageUrl ?? "", tierLabels: t.tierLabels.join(", "), visibility: t.visibility });
     setEditing(true);
   }
 
@@ -123,6 +125,7 @@ function TemplatePage() {
         title: form.title.trim(),
         description: form.description.trim(),
         category: form.category.trim(),
+        coverImageUrl: form.coverImageUrl.trim() || null,
         tierLabels: labels,
         visibility: form.visibility,
       },
@@ -269,6 +272,9 @@ function TemplatePage() {
             </div>
           </div>
           <div className="mb-3">
+            <ImageField label="Cover picture" kind="cover" value={form.coverImageUrl} onChange={(url) => setForm({ ...form, coverImageUrl: url })} disabled={busy} help="Shown on the template's card in browse." />
+          </div>
+          <div className="mb-3">
             <label htmlFor="editTiers" className="form-label fw-semibold">Tier names, best to worst</label>
             <input id="editTiers" className="form-control" value={form.tierLabels} onChange={(e) => setForm({ ...form, tierLabels: e.target.value })} />
             <div className="form-text">Separate with commas. This only changes rankings started after you save: existing rankings keep their own tiers.</div>
@@ -338,8 +344,7 @@ function TemplatePage() {
                   <input id="editItemName" className="form-control" maxLength={60} value={itemName} onChange={(e) => setItemName(e.target.value)} required />
                 </div>
                 <div className="col-12 col-md">
-                  <label htmlFor="editItemImage" className="form-label fw-semibold">Image link (optional, https)</label>
-                  <input id="editItemImage" type="url" className="form-control" value={itemImage} onChange={(e) => setItemImage(e.target.value)} />
+                  <ImageField label="Picture (optional)" kind="item" value={itemImage} onChange={setItemImage} disabled={busy} />
                 </div>
                 <div className="col-12 col-md-auto d-flex gap-2">
                   <button type="submit" className="btn btn-primary" disabled={busy || !itemName.trim()}>Save item</button>
@@ -353,8 +358,7 @@ function TemplatePage() {
                 <input id="itemName" className="form-control" maxLength={60} value={newName} onChange={(e) => setNewName(e.target.value)} required />
               </div>
               <div className="col-12 col-md">
-                <label htmlFor="itemImage" className="form-label fw-semibold">Image link (optional, https)</label>
-                <input id="itemImage" type="url" className="form-control" value={newImage} onChange={(e) => setNewImage(e.target.value)} />
+                <ImageField label="Picture (optional)" kind="item" value={newImage} onChange={setNewImage} disabled={busy} />
               </div>
               <div className="col-12 col-md-auto">
                 <button type="submit" className="btn btn-primary w-100" disabled={busy}>Add item</button>

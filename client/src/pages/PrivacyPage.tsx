@@ -68,9 +68,14 @@ function PrivacyPage() {
 
       <h2 className="h5">Deleting your account</h2>
       <p>
-        To have your account deleted, contact {contact} from the email address on the account. We will delete the account along
-        with its templates, rankings, comments, likes and notifications. You can also unlink Google or Discord, change your
-        display name and picture, or clear your bio at any time in <Link to="/settings">Settings</Link>.
+        You can delete your account yourself: log in, open <Link to="/settings">Settings</Link> and press <strong>Delete my account</strong>{" "}
+        at the bottom of the page. If your account has a password you will be asked for it. The account is deleted straight away,
+        together with its templates (and the rankings other people made from them), rankings, comments, likes, notifications and
+        uploaded pictures. The moderation log keeps its entries but shows you as a deleted user. You can also unlink Google or Discord,
+        change your display name and picture, or clear your bio at any time in Settings.
+      </p>
+      <p>
+        If you can't log in, contact {contact} from the email address on the account and we will delete it for you.
       </p>
 
       <h2 className="h5">Changes</h2>

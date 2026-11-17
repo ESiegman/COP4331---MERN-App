@@ -1,5 +1,6 @@
 import { useState, type FormEvent } from "react";
 import { useNavigate } from "react-router-dom";
+import ImageField from "../components/ImageField";
 import Notice from "../components/Notice";
 import { apiFetch } from "../utils/api";
 import type { TemplateDetail, Visibility } from "../utils/types";
@@ -23,7 +24,11 @@ function CreateTemplatePage() {
   const [category, setCategory] = useState("");
   const [tierLabels, setTierLabels] = useState("S, A, B, C, D, F");
   const [visibility, setVisibility] = useState<Visibility>("public");
+  const [coverImageUrl, setCoverImageUrl] = useState("");
   const [itemsText, setItemsText] = useState("");
+  // The "add an item with a picture" helper below the list
+  const [photoName, setPhotoName] = useState("");
+  const [photoUrl, setPhotoUrl] = useState("");
   const [busy, setBusy] = useState(false);
   const [suggesting, setSuggesting] = useState(false);
   const [error, setError] = useState("");
@@ -52,6 +57,16 @@ function CreateTemplatePage() {
     }
   }
 
+  // Adds one "Name | link" line, the format the list already understands
+  function addPhotoItem() {
+    const name = photoName.replace(/[|\n]/g, " ").trim();
+    if (!name) return;
+    const line = photoUrl.trim() ? `${name} | ${photoUrl.trim()}` : name;
+    setItemsText((current) => [current.trim(), line].filter(Boolean).join("\n"));
+    setPhotoName("");
+    setPhotoUrl("");
+  }
+
   async function submit(e: FormEvent) {
     e.preventDefault();
     setError("");
@@ -69,6 +84,7 @@ function CreateTemplatePage() {
         title,
         description: description.trim() || undefined,
         category: category.trim() || undefined,
+        coverImageUrl: coverImageUrl.trim() || undefined,
         tierLabels: labels,
         visibility,
         items: parseItems(itemsText),
@@ -110,6 +126,10 @@ function CreateTemplatePage() {
         </div>
 
         <div className="mb-3">
+          <ImageField label="Cover picture (optional)" kind="cover" value={coverImageUrl} onChange={setCoverImageUrl} disabled={busy} help="Shown on the template's card in browse. Paste a link or upload a picture." />
+        </div>
+
+        <div className="mb-3">
           <label htmlFor="tiers" className="form-label fw-semibold">Tier names, best to worst</label>
           <input id="tiers" className="form-control" value={tierLabels} onChange={(e) => setTierLabels(e.target.value)} />
           <div className="form-text">Separate with commas. Up to 12 tiers.</div>
@@ -123,8 +143,22 @@ function CreateTemplatePage() {
             </button>
           </div>
           <textarea id="items" className="form-control font-monospace" rows={8} value={itemsText} onChange={(e) => setItemsText(e.target.value)} placeholder={"Beef jerky\nSour gummy worms\nHot Cheetos | https://example.com/cheetos.jpg"} />
-          <div className="form-text">One item per line. To add a picture, put its https link after a “|”. You can add more later.</div>
+          <div className="form-text">One item per line. To add a picture, put its https link after a “|”, or use the box below. You can add more later.</div>
         </div>
+
+        <fieldset className="mb-3 border rounded p-3">
+          <legend className="h6 float-none w-auto px-1 mb-2">Add an item with a picture</legend>
+          <div className="mb-2">
+            <label htmlFor="photoName" className="form-label fw-semibold">Item name</label>
+            <input id="photoName" className="form-control" maxLength={60} value={photoName} onChange={(e) => setPhotoName(e.target.value)} />
+          </div>
+          <div className="mb-2">
+            <ImageField label="Item picture" kind="item" value={photoUrl} onChange={setPhotoUrl} disabled={busy} />
+          </div>
+          <button type="button" className="btn btn-sm btn-outline-primary" onClick={addPhotoItem} disabled={!photoName.trim()}>
+            Add to the list
+          </button>
+        </fieldset>
 
         {notice && <Notice>{notice}</Notice>}
         {error && <Notice kind="error">{error}</Notice>}
