@@ -1,5 +1,6 @@
 import { useEffect, useState, type FormEvent } from "react";
-import { useLocation } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
+import ImageField from "../components/ImageField";
 import Notice from "../components/Notice";
 import { apiFetch } from "../utils/api";
 import { isProviderUsable, startOAuth, type OAuthProviderInfo } from "../utils/oauth";
@@ -17,9 +18,10 @@ const PREF_LABELS: { key: keyof NotificationPrefs; label: string }[] = [
 const PROVIDER_NAMES: Record<OAuthProviderId, string> = { google: "Google", discord: "Discord" };
 
 function SettingsPage() {
-  const { user, updateUser } = useAuth();
-  const { confirm, dialog } = useConfirm();
+  const { user, updateUser, signOut } = useAuth();
+  const { confirm, confirmWithPassword, dialog } = useConfirm();
   const location = useLocation();
+  const navigate = useNavigate();
   // RequireLogin guarantees there is a user on this page
   const account = user as Account;
 
@@ -39,6 +41,10 @@ function SettingsPage() {
   const [methodsMessage, setMethodsMessage] = useState("");
   const [methodsBusy, setMethodsBusy] = useState(false);
   const { providers } = useOAuthProviders();
+
+  // Deleting the account
+  const [deleteError, setDeleteError] = useState("");
+  const [deleting, setDeleting] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -128,6 +134,43 @@ function SettingsPage() {
     else setMethodsError(res.error ?? "Could not send the link");
   }
 
+  // DELETE /users/me removes the account and everything it made, for good. An account with a password
+  // has to send it; a Google or Discord-only account sends nothing. See server/README.md.
+  async function deleteAccount() {
+    setDeleteError("");
+    const options = {
+      title: "Delete your account?",
+      message:
+        "This permanently deletes your account, your templates (and every ranking made from them), your rankings, comments, likes and uploaded pictures. This can't be undone.",
+      confirmLabel: "Delete my account",
+    };
+
+    let password: string | undefined;
+    if (hasPassword) {
+      const typed = await confirmWithPassword(options);
+      if (typed === null) return;
+      password = typed;
+    } else if (!(await confirm(options))) {
+      return;
+    }
+
+    setDeleting(true);
+    const res = await apiFetch<null>("api/users/me", { method: "DELETE", body: password === undefined ? undefined : { password } });
+    setDeleting(false);
+
+    if (res.ok) {
+      // Leave this page first: RequireLogin would otherwise send them to log in and back here
+      navigate("/login", { replace: true, state: { notice: "Your account has been deleted.", noticeKind: "info" } });
+      signOut();
+      return;
+    }
+
+    if (res.code === "WRONG_PASSWORD") setDeleteError("That password is wrong. Your account was not deleted.");
+    else if (res.status === 400) setDeleteError("Enter your password to delete your account.");
+    else if (res.status === 409) setDeleteError("You are the only admin. Make someone else an admin before you delete your account.");
+    else setDeleteError(res.error ?? "Could not delete your account");
+  }
+
   // Show a provider the server has set up, and also one that is linked even if it was switched off
   const rows: { provider: OAuthProviderId; info: OAuthProviderInfo | undefined }[] = (["google", "discord"] as const)
     .map((provider) => ({ provider, info: providers.find((p) => p.provider === provider) }))
@@ -151,8 +194,8 @@ function SettingsPage() {
         </div>
 
         <div className="mb-4">
-          <label htmlFor="avatarUrl" className="form-label fw-semibold">Profile picture link (https)</label>
-          <input id="avatarUrl" type="url" className="form-control" value={avatarUrl} onChange={(e) => setAvatarUrl(e.target.value)} />
+          <ImageField label="Profile picture" kind="avatar" value={avatarUrl} onChange={setAvatarUrl} disabled={busy} />
+          <div className="form-text">Remember to press Save changes after choosing a picture.</div>
         </div>
 
         <fieldset className="mb-4">
@@ -233,6 +276,18 @@ function SettingsPage() {
             {methodsMessage && <Notice kind="success">{methodsMessage}</Notice>}
           </div>
         )}
+      </section>
+
+      <section className="panel mt-4 border-danger-subtle" aria-labelledby="delete-heading">
+        <h2 id="delete-heading" className="h5 mb-2">Delete account</h2>
+        <p className="muted small">
+          Deletes your account and everything it made: your templates and the rankings made from them, your rankings, comments,
+          likes and pictures. Your username and email become free to use again. This can't be undone.
+        </p>
+        {deleteError && <Notice kind="error">{deleteError}</Notice>}
+        <button type="button" className="btn btn-outline-danger" onClick={() => void deleteAccount()} disabled={deleting || hasPassword === null}>
+          {deleting ? "Deleting…" : "Delete my account"}
+        </button>
       </section>
       {dialog}
     </main>

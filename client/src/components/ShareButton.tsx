@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { Board } from "../utils/board";
+import { blobToDataUrl, postToApp } from "../utils/nativeApp";
 import { imageFileName, renderBoardImage } from "../utils/shareImage";
 import type { Item } from "../utils/types";
 
@@ -22,14 +23,16 @@ function ShareButton({ url, image }: { url: string; image?: ShareImage }) {
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => e.key === "Escape" && setOpen(false);
-    const onDown = (e: MouseEvent) => {
+    // pointerdown, not mousedown: iOS Safari sends no mouse events for a tap on a plain page area,
+    // so the menu would never close on an outside tap
+    const onDown = (e: PointerEvent) => {
       if (root.current && !root.current.contains(e.target as Node)) setOpen(false);
     };
     document.addEventListener("keydown", onKey);
-    document.addEventListener("mousedown", onDown);
+    document.addEventListener("pointerdown", onDown);
     return () => {
       document.removeEventListener("keydown", onKey);
-      document.removeEventListener("mousedown", onDown);
+      document.removeEventListener("pointerdown", onDown);
     };
   }, [open]);
 
@@ -49,6 +52,18 @@ function ShareButton({ url, image }: { url: string; image?: ShareImage }) {
     }
   }
 
+  function download(blob: Blob, fileName: string) {
+    const href = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = href;
+    link.download = fileName;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    window.setTimeout(() => URL.revokeObjectURL(href), 10_000);
+    flash("Image saved");
+  }
+
   async function shareImage() {
     if (!image) return;
     setOpen(false);
@@ -56,6 +71,11 @@ function ShareButton({ url, image }: { url: string; image?: ShareImage }) {
     try {
       const blob = await renderBoardImage(image.title, image.board, image.items);
       const file = new File([blob], imageFileName(image.title), { type: "image/png" });
+      // Inside the Android app the WebView has no share sheet and ignores downloads of blobs,
+      // so the app does the sharing
+      if (postToApp({ type: "share-image", fileName: file.name, dataUrl: await blobToDataUrl(blob), title: image.title })) {
+        return;
+      }
       // On phones this opens the share sheet. Elsewhere the picture is downloaded.
       if (navigator.canShare?.({ files: [file] })) {
         try {
@@ -63,18 +83,14 @@ function ShareButton({ url, image }: { url: string; image?: ShareImage }) {
           flash("Image shared");
         } catch (err) {
           // Closing the share sheet is not an error
-          if (!(err instanceof DOMException && err.name === "AbortError")) throw err;
+          if (err instanceof DOMException && err.name === "AbortError") return;
+          // Safari only allows sharing shortly after the tap, and drawing the picture can take longer.
+          // Save it instead of failing.
+          if (err instanceof DOMException && err.name === "NotAllowedError") download(blob, file.name);
+          else throw err;
         }
       } else {
-        const href = URL.createObjectURL(blob);
-        const link = document.createElement("a");
-        link.href = href;
-        link.download = file.name;
-        document.body.appendChild(link);
-        link.click();
-        link.remove();
-        window.setTimeout(() => URL.revokeObjectURL(href), 10_000);
-        flash("Image saved");
+        download(blob, file.name);
       }
     } catch {
       flash("Couldn't make the image");

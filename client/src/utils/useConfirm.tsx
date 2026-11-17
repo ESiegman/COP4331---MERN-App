@@ -10,10 +10,12 @@ export interface ConfirmOptions {
 interface Answer {
   ok: boolean;
   reason: string;
+  password: string;
 }
 
 interface Pending extends ConfirmOptions {
   askReason: boolean;
+  askPassword: boolean;
   resolve: (answer: Answer) => void;
 }
 
@@ -28,37 +30,47 @@ interface Pending extends ConfirmOptions {
 //
 // confirmWithReason is the same dialog with a box for an optional reason. It answers null when
 // cancelled, and otherwise the reason (an empty string when none was typed).
+//
+// confirmWithPassword is the same dialog with a password box. It answers null when cancelled,
+// and otherwise the password that was typed (never empty).
 export function useConfirm() {
   const [pending, setPending] = useState<Pending | null>(null);
   const current = useRef<Pending | null>(null);
 
   const ask = useCallback(
-    (options: ConfirmOptions, askReason: boolean) =>
+    (options: ConfirmOptions, extras: { askReason?: boolean; askPassword?: boolean } = {}) =>
       new Promise<Answer>((resolve) => {
-        current.current?.resolve({ ok: false, reason: "" }); // a dialog is already open: treat it as cancelled
-        const next = { ...options, askReason, resolve };
+        current.current?.resolve({ ok: false, reason: "", password: "" }); // a dialog is already open: treat it as cancelled
+        const next = { ...options, askReason: extras.askReason ?? false, askPassword: extras.askPassword ?? false, resolve };
         current.current = next;
         setPending(next);
       }),
     []
   );
 
-  const confirm = useCallback(async (options: ConfirmOptions) => (await ask(options, false)).ok, [ask]);
+  const confirm = useCallback(async (options: ConfirmOptions) => (await ask(options)).ok, [ask]);
   const confirmWithReason = useCallback(
     async (options: ConfirmOptions) => {
-      const answer = await ask(options, true);
+      const answer = await ask(options, { askReason: true });
       return answer.ok ? answer.reason : null;
     },
     [ask]
   );
+  const confirmWithPassword = useCallback(
+    async (options: ConfirmOptions) => {
+      const answer = await ask(options, { askPassword: true });
+      return answer.ok ? answer.password : null;
+    },
+    [ask]
+  );
 
-  const answer = useCallback((ok: boolean, reason: string) => {
-    current.current?.resolve({ ok, reason });
+  const answer = useCallback((ok: boolean, reason: string, password: string) => {
+    current.current?.resolve({ ok, reason, password });
     current.current = null;
     setPending(null);
   }, []);
-  const cancel = useCallback(() => answer(false, ""), [answer]);
-  const accept = useCallback((reason: string) => answer(true, reason), [answer]);
+  const cancel = useCallback(() => answer(false, "", ""), [answer]);
+  const accept = useCallback((reason: string, password: string) => answer(true, reason, password), [answer]);
 
   const dialog = pending ? (
     <ConfirmDialog
@@ -66,10 +78,11 @@ export function useConfirm() {
       message={pending.message}
       confirmLabel={pending.confirmLabel}
       askReason={pending.askReason}
+      askPassword={pending.askPassword}
       onConfirm={accept}
       onCancel={cancel}
     />
   ) : null;
 
-  return { confirm, confirmWithReason, dialog };
+  return { confirm, confirmWithReason, confirmWithPassword, dialog };
 }

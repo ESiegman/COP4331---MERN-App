@@ -83,10 +83,11 @@ export function clearPending(): void {
 
 // Google refuses to show its sign-in page inside an embedded WebView (error 403
 // disallowed_useragent), and the mobile app is a WebView around this site. Discord works there.
-// Android WebViews put "wv" in the user agent; iOS ones leave out the "Safari" token.
+// The Android app adds "TierListApp" to its user agent, which is the surest sign. Other Android
+// WebViews put "wv" in it; iOS ones leave out the "Safari" token.
 export function isEmbeddedWebView(): boolean {
   const ua = navigator.userAgent;
-  return /; wv\)/.test(ua) || (/(iPhone|iPod|iPad)/.test(ua) && !/Safari/.test(ua));
+  return /TierListApp/.test(ua) || /; wv\)/.test(ua) || (/(iPhone|iPod|iPad)/.test(ua) && !/Safari/.test(ua));
 }
 
 export function isProviderUsable(provider: OAuthProviderId): boolean {
