@@ -1,6 +1,6 @@
 import mongoose from 'mongoose';
 import { suggestItemNames } from '../../integrations/ai.js';
-import { withTransaction } from '../../lib/db.js';
+import { KEEP_UPDATED_AT, withTransaction } from '../../lib/db.js';
 import { forbidden, notFound } from '../../lib/errors.js';
 import { findPage } from '../../lib/pagination.js';
 import { canView, isOwner, shareUrl } from '../../lib/sharedContent.js';
@@ -21,6 +21,17 @@ async function findOwnTemplate(userId, templateId) {
   const template = await findViewableTemplate(userId, templateId);
   if (!isOwner(template, userId)) throw forbidden('Only the owner can change this template');
   return template;
+}
+
+// Template.rankingCount is the number of published, public rankings: the ones the template's
+// page lists. A private template's rankings are private too, so it counts none. Recounted
+// rather than incremented, so it stays right when a ranking or the template changes visibility.
+export async function recountRankings(templateId) {
+  const template = await Template.findById(templateId).select('visibility').lean();
+  const rankingCount = template.visibility === 'private'
+    ? 0
+    : await Ranking.countDocuments({ templateId, visibility: 'public', publishedAt: { $ne: null } });
+  await Template.updateOne({ _id: templateId }, { rankingCount }, KEEP_UPDATED_AT);
 }
 
 // Items in the order they were added
@@ -46,12 +57,23 @@ async function withOwners(page) {
   return { items, nextCursor: page.nextCursor };
 }
 
+const escapeRegex = (text) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+// Every word typed has to match the start of a word in the title, description or category,
+// ignoring case: "snack" finds "Gas station snacks", and "gas sn" finds it too.
+function searchFilter(q) {
+  const words = q.split(/\s+/).filter(Boolean).slice(0, 8);
+  return words.map((word) => {
+    const startOfWord = new RegExp(`(^|\\W)${escapeRegex(word)}`, 'i');
+    return { $or: [{ title: startOfWord }, { description: startOfWord }, { category: startOfWord }] };
+  });
+}
+
 // GET /templates  (Browse tier lists, Search templates)
-// Only public templates. `q` uses the text index, which matches whole words in the title,
-// description and category.
+// Only public templates.
 export async function listTemplates({ q, category, sort, cursor, limit }) {
   const filter = { visibility: 'public' };
-  if (q) filter.$text = { $search: q };
+  if (q) filter.$and = searchFilter(q);
   if (category) filter.category = category;
 
   const sortBy = sort === 'popular' ? 'rankingCount' : 'createdAt';
@@ -87,8 +109,14 @@ export async function getTemplate(viewerId, templateId) {
 // Changing tierLabels only affects rankings started afterwards: existing ones keep their tiers.
 export async function updateTemplate(userId, templateId, changes) {
   const template = await findOwnTemplate(userId, templateId);
+  const visibilityChanged = changes.visibility !== undefined && changes.visibility !== template.visibility;
   template.set(changes);
   await template.save();
+
+  if (visibilityChanged) {
+    await recountRankings(template._id);
+    return Template.findById(template._id);
+  }
   return template;
 }
 

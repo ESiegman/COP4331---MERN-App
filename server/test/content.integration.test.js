@@ -129,6 +129,16 @@ describe('templates and rankings against a real database', { skip }, () => {
     assert.deepEqual(ids(games.body.items), [second.body.template._id]);
   });
 
+  test('search matches the start of words, in any case, with every word required', async () => {
+    const search = async (q) => ids((await api('get', `/templates?q=${encodeURIComponent(q)}`)).body.items);
+    assert.deepEqual(await search(`${word} snac`), [template._id], 'a word start finds Snacks');
+    assert.deepEqual(await search(`${word} SNACKS`), [template._id], 'case does not matter');
+    assert.deepEqual(await search(`${word} nacks`), [], 'the middle of a word does not match');
+    assert.deepEqual(await search(`${word} snacks pizza`), [], 'every word has to match');
+    assert.deepEqual(await search(`${word.slice(0, 5)}`).then((found) => found.includes(template._id)), true);
+    assert.equal((await api('get', '/templates?q=%28%5B*')).status, 200, 'regex characters are taken literally');
+  });
+
   test('only the owner can change a template or its items', async () => {
     assert.equal((await api('patch', `/templates/${template._id}`, 'bob', { title: 'Mine now' })).status, 403);
     assert.equal((await api('patch', `/templates/${privateTemplate._id}`, 'bob', { title: 'Mine now' })).status, 404);

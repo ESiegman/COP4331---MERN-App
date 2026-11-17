@@ -12,8 +12,13 @@ const limiter = ({ minutes, limit }) =>
     message: { error: 'Too many requests, try again later', code: 'RATE_LIMITED' },
   });
 
-// Sign-up, login and password reset: slows down password guessing
-export const authLimiter = limiter({ minutes: 15, limit: 30 });
+// Login, password reset and Google/Discord login: slows down password guessing, with room for
+// a classroom of people logging in from one network
+export const loginLimiter = limiter({ minutes: 15, limit: 100 });
+
+// Routes that send an email (sign-up, resend verification, forgot password), so they can't be
+// used to flood someone's inbox
+export const emailLimiter = limiter({ minutes: 60, limit: 50 });
 
 // AI item suggestions cost money per call
 export const aiLimiter = limiter({ minutes: 60, limit: 20 });

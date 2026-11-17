@@ -15,10 +15,10 @@ Express API for the tier list app. Every route is under `/api`, and all request 
 | An AI provider | `POST /templates/suggest-items` | `integrations/ai.js` |
 | Image storage | `POST /uploads/sign` | `integrations/storage.js` |
 
-Two more things are not sent yet:
+Email and push work, with one setting each:
 
-- **Email.** No provider is wired into `integrations/email.js`. In development the verification or reset email is written to the API log, link included, so sign-up can be tried locally. In production it is dropped, so nobody can verify an account there yet.
-- **Push notifications.** Notifications are saved and listed, but `integrations/push.js` does not call Expo yet, so no phone buzzes.
+- **Email** goes out through any SMTP server once `SMTP_URL` is set (see Configuration). Until it is set in `/opt/mern/.env`, production drops every email, so nobody new can verify an account there. In development without it, the email, link included, is written to the API log.
+- **Push notifications** go through Expo's push service as soon as the app registers a phone with `POST /api/users/me/push-tokens`. No account or key is needed unless "enhanced push security" is turned on in Expo's dashboard, which needs `EXPO_ACCESS_TOKEN`. Phones Expo reports as uninstalled are dropped from the account.
 
 ## Endpoints
 
@@ -209,7 +209,7 @@ sequenceDiagram
 
 - Passwords are hashed with bcrypt (10 rounds). The hash is never loaded unless a query asks for it, and never sent in a response.
 - The links in emails carry a random one-time token. The database stores only its SHA-256 hash, and MongoDB deletes expired tokens on its own. A verification link lasts 24 hours, a reset link 1 hour, and asking for a new link cancels the old one.
-- The `/api/auth` routes share a limit of 30 requests per 15 minutes per client address, to slow down password guessing.
+- Rate limits, per client address: login, password reset and Google/Discord login allow 100 requests per 15 minutes, enough for a classroom on one network. Routes that send an email (register, resend verification, forgot password) allow 50 per hour. Verifying an email has no limit, since its token can't be guessed.
 - Tokens are stateless: logging out is the client forgetting the token, and changing a password does not cancel tokens that were already issued.
 
 ## Who can see what
@@ -223,6 +223,8 @@ Templates and rankings both have a `visibility`:
 | `private` | Only its owner | No |
 
 A ranking is also a **draft** until it is published (`publishedAt` is `null`). Only its owner can see a draft, and drafts cannot be liked or commented on.
+
+**A ranking is never more visible than its template.** A public ranking of an unlisted template behaves as unlisted: it opens by link and appears on the template's page, but never in the feed or on profiles. Any ranking of a private template behaves as private. This also applies when a template is made private after other people ranked it: their rankings disappear for everyone else, and each owner keeps seeing their own.
 
 When someone may not see a template or ranking, the API answers `404`, the same as if it did not exist. `403` is only used when they can see it but may not change it.
 
@@ -310,6 +312,7 @@ erDiagram
         ObjectId rankingId FK
         ObjectId authorId FK
         string body
+        date updatedAt "later than createdAt once edited"
         date createdAt
     }
     likes {
@@ -383,7 +386,7 @@ Every error response has the same shape. `details` is only present for validatio
 | 404 | `NOT_FOUND` | No such route or document, or one you are not allowed to see |
 | 409 | `CONFLICT` | The email or username is already taken |
 | 413 | `TOO_LARGE` | A body over 100 kB |
-| 429 | `RATE_LIMITED` | Too many requests to `/api/auth` or to AI suggestions |
+| 429 | `RATE_LIMITED` | Too many login, sign-up or email requests, or AI suggestions (see Authentication) |
 | 500 | `INTERNAL` | Anything unexpected. The details are logged on the server, not sent back |
 | 501 | `NOT_IMPLEMENTED` | A route from the Status table above |
 
@@ -424,7 +427,7 @@ What everyone else sees of a user. It appears as `owner`, `author` and `actor` o
 
 ### Template
 
-`coverImageUrl` is `null` when there is none. `rankingCount` is the number of published rankings.
+`coverImageUrl` is `null` when there is none. `rankingCount` is the number of published, public rankings: the ones the template's page lists. A private template's is always 0.
 
 ```json
 {
@@ -487,6 +490,7 @@ What everyone else sees of a user. It appears as `owner`, `author` and `actor` o
   "authorId": "6721a3f0c2b8a1d4e5f60701",
   "body": "Chips in S tier, bold.",
   "createdAt": "2026-11-15T17:28:23.630Z",
+  "updatedAt": "2026-11-15T17:28:23.630Z",
   "author": {
     "_id": "6721a3f0c2b8a1d4e5f60701",
     "username": "ada",
@@ -676,7 +680,7 @@ Public templates, as a list.
 
 | Query | Meaning |
 | --- | --- |
-| `q` | Search words. Matches whole words in the title, description and category, so `snack` does not find `snacks` |
+| `q` | Search words, in any case. Each word has to match the start of a word in the title, description or category, so `snack` and `gas sn` both find "Gas station snacks" |
 | `category` | Exact category, in any case |
 | `sort` | `new` (default, newest first) or `popular` (most rankings first) |
 | `limit`, `cursor` | See Lists |
@@ -900,13 +904,13 @@ Do not send `order`: the API numbers the tiers by their position.
 
 Response `200`: `{ "ranking": Ranking, "shareUrl": "..." }`.
 
-The first time a ranking is published, the API sets `publishedAt`, adds one to the template's `rankingCount`, and notifies the template's owner (unless that is you, they turned those notifications off, or the ranking is private). Publishing again changes nothing more, and a ranking cannot be unpublished.
+The first time a ranking is published, the API sets `publishedAt` and notifies the template's owner, unless that is you, they turned those notifications off, or the ranking counts as private (see Who can see what). Publishing again changes nothing more, and a ranking cannot be unpublished. Every save of a published ranking recounts the template's `rankingCount`, so it stays right when the ranking changes visibility.
 
 Errors: `400` `Every item must belong to the template being ranked`, `403` not the owner, `404`.
 
 ### DELETE /api/rankings/:rankingId
 
-Deletes the ranking with its comments, likes and notifications, and lowers the template's `rankingCount` if it had been published.
+Deletes the ranking with its comments, likes and notifications, and recounts the template's `rankingCount`.
 
 Response `204`. Errors: `403`, `404`.
 
@@ -942,7 +946,7 @@ Errors: `400` `Only published rankings can be commented on`, `404`.
 
 ### PATCH /api/comments/:commentId
 
-Body: `{ "body": "..." }`. Response `200`: the updated Comment. There is no "edited" marker: comments have no `updatedAt`.
+Body: `{ "body": "..." }`. Response `200`: the updated Comment. A comment counts as edited when its `updatedAt` is later than its `createdAt`.
 
 Errors: `403` not the author, `404`.
 
@@ -1016,6 +1020,9 @@ For the five unwritten routes, steps 1 and 3 are done. Each service or integrati
 | `JWT_EXPIRES_IN` | `7d` | How long a login lasts |
 | `APP_URL` | `http://localhost:5173` | Where the web app is served. Email links and share links point here |
 | `NODE_ENV` | `development` | `production` turns on JSON logs and trusts Caddy's forwarded client address |
+| `SMTP_URL` | | SMTP server for email, such as `smtps://USER:PASSWORD@smtp.example.com:465`. Any provider works. Without it no email is sent, and production logs a warning at startup |
+| `EMAIL_FROM` | `Tier List <no-reply@APP_URL's domain>` | Who emails come from. Most providers only accept a domain you have verified with them |
+| `EXPO_ACCESS_TOKEN` | | Only if "enhanced push security" is on in Expo's dashboard |
 
 The API checks these at startup and stops with a message naming any that are missing or malformed. In Docker they come from `compose.yaml` locally and from `/opt/mern/.env` on the droplet. To run outside Docker, copy `.env.example` to `.env`.
 
@@ -1049,4 +1056,6 @@ For trying the API by hand rather than in tests, the sample data gives you accou
 | `auth.integration.test.js` | Sign-up, verification, login, password reset, `/users/me` |
 | `models.integration.test.js` | Every model saves against the validators in `db/setup.js` |
 | `content.integration.test.js` | Templates, items, rankings, publishing, likes, community ranking, cascading deletes |
-| `social.integration.test.js` | Profiles, push tokens, comments, the notification list |
+| `social.integration.test.js` | Profiles, push tokens, comments and edits, the notification list |
+| `visibility.integration.test.js` | Rankings follow their template's visibility, `rankingCount` through every change, push on publish |
+| `integrations.test.js` | The Expo push request and its replies, the email settings |

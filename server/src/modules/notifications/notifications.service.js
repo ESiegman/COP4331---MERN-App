@@ -1,4 +1,4 @@
-import { sendPush } from '../../integrations/push.js';
+import { pushClient } from '../../integrations/push.js';
 import { notFound } from '../../lib/errors.js';
 import { logger } from '../../lib/logger.js';
 import { findPage } from '../../lib/pagination.js';
@@ -30,17 +30,21 @@ const PUSH_TEXT = {
 const noPush = async () => {};
 
 // A failed push is logged and never thrown: the action that caused it has already happened
-async function push(pushTokens, { _id, actorId, type, rankingId }) {
+async function push(pushTokens, { _id, recipientId, actorId, type, rankingId }) {
   try {
     const actor = await User.findById(actorId).select('username displayName').lean();
     const ranking = await Ranking.findById(rankingId).select('templateId').lean();
     const template = await Template.findById(ranking.templateId).select('title').lean();
 
-    await sendPush(pushTokens, {
+    const gone = await pushClient.send(pushTokens, {
       title: 'Tier List',
       body: PUSH_TEXT[type](actor.displayName ?? actor.username, template.title),
       data: { rankingId: String(rankingId), notificationId: String(_id) },
     });
+    // Expo says these phones no longer have the app: stop sending to them
+    if (gone.length > 0) {
+      await User.updateOne({ _id: recipientId }, { $pull: { pushTokens: { $in: gone } } });
+    }
   } catch (err) {
     logger.warn({ err }, 'Could not send push notification');
   }

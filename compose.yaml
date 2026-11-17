@@ -42,6 +42,9 @@ services:
       MONGODB_URI: mongodb://${MONGO_APP_USER:-app}:${MONGO_APP_PASSWORD:-apppassword}@mongodb:27017/${MONGO_APP_DB:-app}?directConnection=true
       JWT_SECRET: ${JWT_SECRET:-dev-secret}
       APP_URL: http://localhost:5173
+      # Optional: set in a root .env to send real email while developing
+      SMTP_URL: ${SMTP_URL:-}
+      EMAIL_FROM: ${EMAIL_FROM:-}
     ports:
       - "5001:5001"
     volumes:

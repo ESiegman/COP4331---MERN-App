@@ -67,6 +67,22 @@ test('"me" can never be a username, so it cannot shadow /users/me', async () => 
   assert.equal(res.body.details[0].field, 'username');
 });
 
+test('length limits say what the limit is, not "must be text"', async () => {
+  const cases = [
+    ['post', '/api/templates', { title: 'x'.repeat(101) }, 'title: must be at most 100 characters'],
+    ['post', '/api/templates', { title: '   ' }, 'title: cannot be empty'],
+    ['post', '/api/templates', { title: 5 }, 'title: must be text'],
+    ['post', `/api/rankings/${ID}/comments`, { body: 'x'.repeat(1001) }, 'body: must be at most 1000 characters'],
+    ['patch', '/api/users/me', { bio: 'x'.repeat(301) }, 'bio: must be at most 300 characters'],
+    ['post', '/api/templates/suggest-items', { topic: 'a' }, 'topic: must be at least 2 characters'],
+  ];
+  for (const [method, path, body, message] of cases) {
+    const res = await request(app)[method](path).set(auth).send(body);
+    assert.equal(res.status, 400, path);
+    assert.equal(res.body.error, message);
+  }
+});
+
 test('login without a password answers 400', async () => {
   const res = await request(app).post('/api/auth/login').send({ email: 'someone@example.com' });
   assert.equal(res.status, 400);

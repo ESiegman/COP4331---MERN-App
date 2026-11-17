@@ -39,6 +39,10 @@ services:
       MONGODB_URI: mongodb://${MONGO_APP_USER:-app}:${MONGO_APP_PASSWORD}@mongodb:27017/${MONGO_APP_DB:-app}?directConnection=true
       JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET in .env}
       APP_URL: https://${SITE_ADDRESS:-mern.esiegman.dev}
+      # Email and push. Set these in /opt/mern/.env; empty means not set.
+      SMTP_URL: ${SMTP_URL:-}
+      EMAIL_FROM: ${EMAIL_FROM:-}
+      EXPO_ACCESS_TOKEN: ${EXPO_ACCESS_TOKEN:-}
     depends_on:
       db-setup:
         condition: service_completed_successfully
