@@ -7,18 +7,18 @@ Express API for the tier list app. Every route is under `/api`, and all request 
 
 ## Status
 
-38 of the 43 routes work. The other 5 are wired up, validated and guarded, but answer `501 Not Implemented` until someone picks a provider and writes the integration:
+39 of the 43 routes work. The other 4 are wired up, validated and guarded, but answer `501 Not Implemented` until someone picks a provider and writes the integration:
 
 | Waiting on | Routes | Where the work goes |
 | --- | --- | --- |
 | Google and Discord apps | `POST /auth/oauth/:provider`, `POST` and `DELETE /users/me/oauth/:provider` | `integrations/oauth.js`, then three functions in `modules/auth/auth.service.js` |
-| An AI provider | `POST /templates/suggest-items` | `integrations/ai.js` |
 | Image storage | `POST /uploads/sign` | `integrations/storage.js` |
 
-Email and push work, with one setting each:
+Email, push and AI suggestions work, with one setting each:
 
 - **Email** goes out through any SMTP server once `SMTP_URL` is set (see Configuration). Until it is set in `/opt/mern/.env`, production drops every email, so nobody new can verify an account there. In development without it, the email, link included, is written to the API log.
 - **Push notifications** go through Expo's push service as soon as the app registers a phone with `POST /api/users/me/push-tokens`. No account or key is needed unless "enhanced push security" is turned on in Expo's dashboard, which needs `EXPO_ACCESS_TOKEN`. Phones Expo reports as uninstalled are dropped from the account.
+- **AI item suggestions** use Claude through Anthropic's API once `ANTHROPIC_API_KEY` is set. Until then `POST /api/templates/suggest-items` answers `501`, which the web app shows as "not available yet".
 
 ## Endpoints
 
@@ -56,7 +56,7 @@ Email and push work, with one setting each:
 | --- | --- | --- | --- |
 | GET | `/api/templates` | none | Browse and search public templates |
 | POST | `/api/templates` | token | Create a template with its starting items |
-| POST | `/api/templates/suggest-items` | token | Ask AI for items to rank (501) |
+| POST | `/api/templates/suggest-items` | token | Ask AI for items to rank |
 | GET | `/api/templates/:templateId` | optional | One template with its items |
 | PATCH | `/api/templates/:templateId` | token, owner | Change a template |
 | DELETE | `/api/templates/:templateId` | token, owner | Delete a template and everything on it |
@@ -388,7 +388,8 @@ Every error response has the same shape. `details` is only present for validatio
 | 413 | `TOO_LARGE` | A body over 100 kB |
 | 429 | `RATE_LIMITED` | Too many login, sign-up or email requests, or AI suggestions (see Authentication) |
 | 500 | `INTERNAL` | Anything unexpected. The details are logged on the server, not sent back |
-| 501 | `NOT_IMPLEMENTED` | A route from the Status table above |
+| 422, 502, 503 | `AI_…` | AI suggestions only: see `POST /api/templates/suggest-items` |
+| 501 | `NOT_IMPLEMENTED` | A route from the Status table above, or AI suggestions without `ANTHROPIC_API_KEY` |
 
 ## Objects
 
@@ -742,13 +743,27 @@ Response `201`, where the capitalized names stand for the objects above:
 
 ### POST /api/templates/suggest-items
 
-Not built yet (`501`). Limited to 20 requests an hour per client.
+Asks Claude (Claude Opus 5.5, through Anthropic's API) for things to rank. Limited to 20 requests an hour per client.
 
 ```json
 { "topic": "fast food chains", "count": 10 }
 ```
 
-`topic` is 2 to 80 characters, `count` 1 to 30 (default 10). Planned response: `{ "items": ["McDonald's", "Wendy's"] }`. Nothing is saved: the client shows the names and sends the ones the user keeps to `POST /api/templates`.
+`topic` is 2 to 80 characters, `count` 1 to 30 (default 10). Response `200`:
+
+```json
+{ "items": ["McDonald's", "Wendy's", "Taco Bell"] }
+```
+
+Nothing is saved: the client shows the names and sends the ones the user keeps to `POST /api/templates`. The names are trimmed, repeats and names over 60 characters are dropped, and there are at most `count` of them (sometimes fewer). If Claude declines a topic, Anthropic retries it on another Claude model before giving up.
+
+| Status | `code` | When |
+| --- | --- | --- |
+| 501 | `AI_NOT_CONFIGURED` | `ANTHROPIC_API_KEY` is not set on the server |
+| 422 | `AI_REFUSED` | Claude would not suggest items for that topic |
+| 502 | `AI_FAILED` | Claude's API returned an error, or an answer in the wrong shape |
+| 503 | `AI_BUSY` | Claude's API is rate limiting the server: try again in a minute |
+| 503 | `AI_UNAVAILABLE` | The API key was rejected, or the API couldn't be reached |
 
 ### GET /api/templates/:templateId
 
@@ -1023,6 +1038,7 @@ For the five unwritten routes, steps 1 and 3 are done. Each service or integrati
 | `SMTP_URL` | | SMTP server for email, such as `smtps://USER:PASSWORD@smtp.example.com:465`. Any provider works. Without it no email is sent, and production logs a warning at startup |
 | `EMAIL_FROM` | `Tier List <no-reply@APP_URL's domain>` | Who emails come from. Most providers only accept a domain you have verified with them |
 | `EXPO_ACCESS_TOKEN` | | Only if "enhanced push security" is on in Expo's dashboard |
+| `ANTHROPIC_API_KEY` | | Claude API key for AI item suggestions. Create one in the Claude Console; it starts with `sk-ant-api`. Without it, suggest-items answers `501` |
 
 The API checks these at startup and stops with a message naming any that are missing or malformed. In Docker they come from `compose.yaml` locally and from `/opt/mern/.env` on the droplet. To run outside Docker, copy `.env.example` to `.env`.
 
@@ -1058,4 +1074,4 @@ For trying the API by hand rather than in tests, the sample data gives you accou
 | `content.integration.test.js` | Templates, items, rankings, publishing, likes, community ranking, cascading deletes |
 | `social.integration.test.js` | Profiles, push tokens, comments and edits, the notification list |
 | `visibility.integration.test.js` | Rankings follow their template's visibility, `rankingCount` through every change, push on publish |
-| `integrations.test.js` | The Expo push request and its replies, the email settings |
+| `integrations.test.js` | The Expo push request and its replies, the email settings, AI suggestions (with Claude's API swapped out) |

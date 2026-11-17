@@ -2,6 +2,7 @@ import { createApp } from './app.js';
 import { env } from './config/env.js';
 import { connectDb, disconnectDb } from './lib/db.js';
 import { logger } from './lib/logger.js';
+import { aiConfigured } from './integrations/ai.js';
 import { emailConfigured } from './integrations/email.js';
 
 // A failed connection rejects here, which stops the process with the error and exit code 1
@@ -10,6 +11,9 @@ logger.info('Connected to MongoDB');
 
 if (env.NODE_ENV === 'production' && !emailConfigured) {
   logger.warn('SMTP_URL is not set: verification and password reset emails will not be sent');
+}
+if (env.NODE_ENV === 'production' && !aiConfigured) {
+  logger.warn('ANTHROPIC_API_KEY is not set: AI item suggestions answer 501');
 }
 
 const server = createApp().listen(env.PORT, (err) => {

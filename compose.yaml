@@ -45,6 +45,7 @@ services:
       # Optional: set in a root .env to send real email while developing
       SMTP_URL: ${SMTP_URL:-}
       EMAIL_FROM: ${EMAIL_FROM:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
     ports:
       - "5001:5001"
     volumes:

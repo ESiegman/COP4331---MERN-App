@@ -35,7 +35,7 @@ const ROUTES = [
 
   ['get', '/templates?q=snacks&sort=popular', undefined, GUEST, DONE],
   ['post', '/templates', { title: 'Gas station snacks', items: [{ name: 'Chips' }] }, TOKEN, DONE],
-  ['post', '/templates/suggest-items', { topic: 'fast food chains' }, TOKEN, TODO],
+  ['post', '/templates/suggest-items', { topic: 'fast food chains' }, TOKEN, DONE],
   ['get', `/templates/${ID}`, undefined, GUEST, DONE],
   ['patch', `/templates/${ID}`, { title: 'Snacks' }, TOKEN, DONE],
   ['delete', `/templates/${ID}`, undefined, TOKEN, DONE],

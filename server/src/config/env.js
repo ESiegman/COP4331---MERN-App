@@ -22,6 +22,8 @@ const schema = z
     SMTP_URL: optional(z.url({ protocol: /^smtps?$/, error: 'must be an smtp:// or smtps:// URL' })),
     // Who emails come from. Most providers only accept an address on a domain you verified with them.
     EMAIL_FROM: optional(z.string().min(3)),
+    // Claude API key for AI item suggestions. Without it, POST /templates/suggest-items answers 501.
+    ANTHROPIC_API_KEY: optional(z.string().min(1)),
     // Only needed if "enhanced push security" is turned on for the project in Expo's dashboard
     EXPO_ACCESS_TOKEN: optional(z.string().min(1)),
   })

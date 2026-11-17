@@ -89,7 +89,7 @@ All requests and responses are JSON. See [server/README.md](server/README.md) fo
 
 Browsing, searching and viewing public templates and rankings needs no account. Everything else needs the token from logging in, sent as `Authorization: Bearer <token>`. A new account has to verify its email before it can log in.
 
-A few routes that depend on outside services (Google and Discord login, AI suggestions, image uploads) are not built yet. The Status section of [server/README.md](server/README.md#status) lists them, along with the settings email and push need.
+A few routes that depend on outside services (Google and Discord login, image uploads) are not built yet. The Status section of [server/README.md](server/README.md#status) lists them, along with the settings that email, push and AI suggestions need.
 
 ## Deployment
 
