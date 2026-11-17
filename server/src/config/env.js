@@ -31,6 +31,8 @@ const schema = z
     GOOGLE_CLIENT_SECRET: optional(z.string().min(1)),
     DISCORD_CLIENT_ID: optional(z.string().min(1)),
     DISCORD_CLIENT_SECRET: optional(z.string().min(1)),
+    // Folder for uploaded images. A Docker volume in production.
+    UPLOAD_DIR: z.string().min(1).default('uploads'),
     // Comma-separated redirect URIs clients may use for Google and Discord login.
     // Defaults to APP_URL/oauth/callback.
     OAUTH_REDIRECT_URIS: optional(

@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { env } from '../config/env.js';
 import { VISIBILITIES } from '../models/enums.js';
 
 // Zod building blocks shared by the modules' *.schemas.js files
@@ -40,7 +41,11 @@ export const visibility = z.enum(VISIBILITIES);
 // A DELETE without a body is fine.
 export const reasonBody = z.object({ reason: text().trim().min(1).max(300).optional() });
 
-export const imageUrl = z.url({ protocol: /^https$/, error: 'must be an https URL' }).max(2000);
+// Any https image, or one uploaded to this site (http://localhost:5173/... in development)
+export const imageUrl = z
+  .url({ protocol: /^https?$/, error: 'must be an https URL' })
+  .max(2000)
+  .refine((url) => url.startsWith('https://') || url.startsWith(`${env.APP_URL}/`), 'must be an https URL');
 
 // For PATCH bodies, where every field is optional but an empty body is a mistake
 export const atLeastOneField = (schema) =>

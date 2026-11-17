@@ -7,17 +7,12 @@ Express API for the tier list app. Every route is under `/api`, and all request 
 
 ## Status
 
-49 of the 50 routes work. The other one is wired up, validated and guarded, but answers `501 Not Implemented` until someone picks a provider and writes the integration:
-
-| Waiting on | Routes | Where the work goes |
-| --- | --- | --- |
-| Image storage | `POST /uploads/sign` | `integrations/storage.js` |
-
-Email, push, AI suggestions and Google and Discord login work, each once its settings are in place:
+Every route works. Email, push, AI suggestions and Google and Discord login each need their settings in place:
 
 - **Email** goes out through any SMTP server once `SMTP_URL` is set (see Configuration). Production has it set in `/opt/mern/.env` and sends through Resend from `mail.esiegman.dev`. Without it, production would drop every email, so nobody new could verify an account. In development without it, the email, link included, is written to the API log.
 - **Push notifications** go through Expo's push service as soon as the app registers a phone with `POST /api/users/me/push-tokens`. No account or key is needed unless "enhanced push security" is turned on in Expo's dashboard, which needs `EXPO_ACCESS_TOKEN`. Phones Expo reports as uninstalled are dropped from the account.
 - **AI item suggestions** use Claude through Anthropic's API once `ANTHROPIC_API_KEY` is set. Until then `POST /api/templates/suggest-items` answers `501`, which the web app shows as "not available yet".
+- **Image uploads** are saved on the server's own disk, in `UPLOAD_DIR` (the `uploads` Docker volume on the droplet), and served by the API. Nothing to set up. The droplet has no backups yet, so neither the images nor the database survive losing it.
 - **Google and Discord login** need each provider's client id and secret (`GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET`, `DISCORD_CLIENT_ID` and `DISCORD_CLIENT_SECRET`). A provider without them answers `501` and is left out of `GET /api/auth/oauth/providers`. See [Google and Discord](#google-and-discord).
 
 ## Endpoints
@@ -96,7 +91,9 @@ Email, push, AI suggestions and Google and Discord login work, each once its set
 | GET | `/api/notifications` | token | Your notifications, newest first |
 | PATCH | `/api/notifications/:notificationId` | token | Mark one as read |
 | POST | `/api/notifications/read-all` | token | Mark all as read |
-| POST | `/api/uploads/sign` | token | Get a ticket for uploading an image (501) |
+| POST | `/api/uploads/sign` | token | Get a ticket for uploading one image |
+| PUT | `/api/uploads/:ticket` | ticket | Upload the image |
+| GET | `/api/uploads/files/...` | none | The uploaded images themselves |
 | GET | `/api/health` | none | Check the API is up |
 
 ### Admin
@@ -484,17 +481,18 @@ Every error response has the same shape. `details` is only present for validatio
 | 400 | `BAD_REQUEST` | Invalid JSON, a used or expired link, an item that is not in the template, liking or commenting on a draft |
 | 401 | `UNAUTHORIZED` | No token, an invalid or expired token, or a wrong email or password |
 | 403 | `EMAIL_NOT_VERIFIED` | Logging in before verifying the email |
+| 400 | `UPLOAD_TICKET_INVALID` | An upload ticket that is expired, tampered with or made up. Ask for a new one |
 | 403 | `WRONG_PASSWORD` | Deleting an account with the wrong password |
 | 403 | `ACCOUNT_BANNED` | The account is banned: logging in, or any request that needs a token. `error` includes the reason |
 | 403 | `FORBIDDEN` | You can see it, but only its owner or author (or a moderator) may change it, or the route needs a moderator or admin |
 | 404 | `NOT_FOUND` | No such route or document, or one you are not allowed to see |
-| 409 | `CONFLICT` | The email or username is already taken, a Google or Discord account is already linked, or the only admin tries to delete their account |
-| 413 | `TOO_LARGE` | A body over 100 kB |
+| 409 | `CONFLICT` | The email or username is already taken, a Google or Discord account is already linked, the only admin tries to delete their account, or an upload ticket is used twice |
+| 413 | `TOO_LARGE` | A body over 100 kB, or an image over 5 MB |
 | 429 | `RATE_LIMITED` | Too many login, sign-up or email requests, or AI suggestions (see Authentication) |
 | 500 | `INTERNAL` | Anything unexpected. The details are logged on the server, not sent back |
-| 422, 502, 503 | `AI_…` | AI suggestions only: see `POST /api/templates/suggest-items` |
+| 422, 501, 502, 503 | `AI_…` | AI suggestions only: see `POST /api/templates/suggest-items` |
 | 400, 403, 501, 502, 503 | `OAUTH_…` | Google and Discord login only: see `POST /api/auth/oauth/:provider` |
-| 501 | `NOT_IMPLEMENTED` | A route from the Status table above, or AI suggestions without `ANTHROPIC_API_KEY` |
+| 501 | `NOT_IMPLEMENTED` | For a route added before its logic is written. No route answers it today |
 
 ## Objects
 
@@ -815,7 +813,7 @@ Deletes the account for good, with everything it made, the same as deleting each
 - its rankings, drafts included, with their comments and likes
 - the comments and likes it left on other people's rankings, whose `commentCount` and `likeCount` go down to match
 - its notifications, and other people's notifications about what it did (a moderator's removal notices stay, since they are about the other person's content)
-- its email links and its linked Google and Discord accounts
+- its email links, its linked Google and Discord accounts, and every image it uploaded
 
 The moderation log keeps its entries, showing the user as gone. The username and email are free to sign up with again. The token stops working at once: any request with it gets `401` "This account no longer exists".
 
@@ -925,7 +923,7 @@ Creates the template and its starting items together.
 | `coverImageUrl` | An `https` URL, or `null` |
 | `tierLabels` | 1 to 12 labels of 1 to 20 characters. Default `S A B C D F` |
 | `visibility` | `public` (default), `unlisted` or `private` |
-| `items` | Up to 200 of `{ name, imageUrl }`. `name` is 1 to 60 characters, `imageUrl` an `https` URL or `null` |
+| `items` | Up to 200 of `{ name, imageUrl }`. `name` is 1 to 60 characters, `imageUrl` an `https` URL (or an uploaded image's `url`) or `null` |
 
 ```json
 {
@@ -1219,13 +1217,53 @@ No body. Response `204`.
 
 ### POST /api/uploads/sign
 
-Not built yet (`501`). The plan: the client asks for a ticket, uploads the image straight to storage with it, then sends the resulting URL as `imageUrl`, `avatarUrl` or `coverImageUrl` on the normal routes. Image bytes never pass through this API.
+Uploading an image takes three steps, the same ones a cloud bucket would need, so the apps won't change if the images ever move to one:
+
+1. Ask for a ticket here.
+2. `PUT` the image to the ticket's `uploadUrl`.
+3. Send the ticket's `url` as `imageUrl`, `avatarUrl` or `coverImageUrl` on the normal routes.
 
 ```json
 { "kind": "item", "contentType": "image/png" }
 ```
 
 `kind` is `item`, `avatar` or `cover`. `contentType` is `image/jpeg`, `image/png` or `image/webp`.
+
+Response `201`:
+
+```json
+{
+  "uploadUrl": "https://mern.esiegman.dev/api/uploads/eyJhbGciOi...",
+  "method": "PUT",
+  "headers": { "Content-Type": "image/png" },
+  "maxBytes": 5242880,
+  "expiresAt": "2026-11-17T12:10:00.000Z",
+  "url": "https://mern.esiegman.dev/api/uploads/files/item/64b000000000000000000001/3f9c0a1b2c3d4e5f60718293.png"
+}
+```
+
+The ticket lasts 10 minutes and works for one image. Limited to 60 tickets an hour per client address.
+
+### PUT /api/uploads/:ticket
+
+Send the image file itself as the body, with the `Content-Type` from the ticket's `headers`. No login token: the ticket is the permission.
+
+```js
+const ticket = await api.post('/uploads/sign', { kind: 'item', contentType: file.type });
+await fetch(ticket.uploadUrl, { method: ticket.method, headers: ticket.headers, body: file });
+await api.patch(`/templates/${templateId}/items/${itemId}`, { imageUrl: ticket.url });
+```
+
+Response `201`: `{ "url": "..." }`, the same `url` as the ticket's. The image is served from it with a long cache lifetime, since a file is never replaced.
+
+| Status | `code` | When |
+| --- | --- | --- |
+| 400 | `BAD_REQUEST` | A `Content-Type` other than the ticket's, an empty body, or a file that isn't really that type of image |
+| 400 | `UPLOAD_TICKET_INVALID` | The ticket expired, was changed, or is a login token. Ask for a new one |
+| 409 | `CONFLICT` | The ticket was already used |
+| 413 | `TOO_LARGE` | Over 5 MB |
+
+Images stay on the server when the item, avatar or cover stops using them. Deleting an account deletes all of its images.
 
 ### GET /api/admin/users
 
@@ -1320,8 +1358,6 @@ Used by the Docker healthcheck and the check at the end of each deploy.
 3. Add a thin function to `*.controller.js` and a line to `*.routes.js`.
 4. Add its row to the table in `test/routes.test.js`, and cover it in one of the `*.integration.test.js` files.
 
-For the five unwritten routes, steps 1 and 3 are done. Each service or integration function has a comment above it listing what it must do. When you finish one, change its row in `test/routes.test.js` from `TODO` to `DONE`.
-
 ## Configuration
 
 | Variable | Default | Purpose |
@@ -1338,6 +1374,7 @@ For the five unwritten routes, steps 1 and 3 are done. Each service or integrati
 | `ANTHROPIC_API_KEY` | | Claude API key for AI item suggestions. Create one in the Claude Console; it starts with `sk-ant-api`. Without it, suggest-items answers `501` |
 | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | | The "Tier List Web" OAuth client in the Google Cloud project "Tier List App" (Google Auth Platform > Clients). Without both, Google login answers `501` |
 | `DISCORD_CLIENT_ID`, `DISCORD_CLIENT_SECRET` | | The "Tier List App" application in the Discord Developer Portal (OAuth2 page). Without both, Discord login answers `501` |
+| `UPLOAD_DIR` | `uploads` (`/data/uploads` in the Docker image) | Folder for uploaded images. The `uploads` volume on the droplet |
 | `OAUTH_REDIRECT_URIS` | `APP_URL/oauth/callback` | Comma-separated redirect URIs clients may use for Google and Discord login, such as an Expo app's. Each must also be registered with the provider |
 
 The API checks these at startup and stops with a message naming any that are missing or malformed. In Docker they come from `compose.yaml` locally and from `/opt/mern/.env` on the droplet. To run outside Docker, copy `.env.example` to `.env`.
@@ -1367,7 +1404,7 @@ For trying the API by hand rather than in tests, the sample data gives you accou
 | File | Covers |
 | --- | --- |
 | `app.test.js` | Health, 404s, invalid JSON, validation messages, bad tokens and cursors |
-| `routes.test.js` | Every route: guests get `401` where a token is needed, unwritten routes answer `501`, admin routes refuse lower roles, banned accounts get `403` |
+| `routes.test.js` | Every route: guests get `401` where a token is needed, admin routes refuse lower roles, banned accounts get `403` |
 | `lib.test.js` | Tokens, cursors, visibility rules, community ranking maths, notification switches |
 | `auth.integration.test.js` | Sign-up, verification, login, password reset, `/users/me` |
 | `accountDeletion.integration.test.js` | Deleting your account: the password check, the last admin, everything it made going, the counts it touched |
@@ -1377,4 +1414,5 @@ For trying the API by hand rather than in tests, the sample data gives you accou
 | `content.integration.test.js` | Templates, items, rankings, publishing, likes, community ranking, cascading deletes |
 | `social.integration.test.js` | Profiles, push tokens, comments and edits, the notification list |
 | `visibility.integration.test.js` | Rankings follow their template's visibility, `rankingCount` through every change, push on publish |
+| `uploads.test.js` | Upload tickets, saving and serving images, wrong types, size limit, forged tickets |
 | `integrations.test.js` | The Expo push request and its replies, the email settings, AI suggestions (with Claude's API swapped out), the Google and Discord requests and their errors |

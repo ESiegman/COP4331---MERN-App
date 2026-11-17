@@ -85,6 +85,7 @@ All requests and responses are JSON. See [server/README.md](server/README.md) fo
 | Rankings | `/api/rankings` | A person's tier list for a template, the feed, likes |
 | Comments | `/api/rankings/:rankingId/comments`, `/api/comments` | Comments on a ranking |
 | Notifications | `/api/notifications` | Who ranked, liked or commented on your content, and moderator removals |
+| Uploads | `/api/uploads` | Upload images for items, avatars and covers, and serve them |
 | Admin | `/api/admin` | Bans, roles and the moderation log, for moderators and admins |
 | Health | `/api/health` | Health check |
 

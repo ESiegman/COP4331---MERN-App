@@ -1,6 +1,8 @@
 import bcrypt from 'bcryptjs';
+import { deleteUserUploads } from '../../integrations/storage.js';
 import { KEEP_UPDATED_AT, withTransaction } from '../../lib/db.js';
 import { badRequest, conflict, forbidden, notFound, unauthorized } from '../../lib/errors.js';
+import { logger } from '../../lib/logger.js';
 import { AuthToken, Comment, Item, Like, Notification, OAuthAccount, Ranking, Template, User } from '../../models/index.js';
 import { recountRankings } from '../templates/templates.service.js';
 
@@ -86,7 +88,7 @@ export async function removePushToken(userId, token) {
 // templates (with every ranking made from them, whoever made it), its rankings (with their
 // comments and likes), and the comments and likes it left on other people's rankings, whose
 // counts go down to match. Notifications to it and about what it did, its email links and its
-// Google and Discord links go too. The moderation log keeps its entries, with the user gone.
+// Google and Discord links and its uploaded images go too. The moderation log keeps its entries, with the user gone.
 export async function deleteAccount(userId, { password }) {
   const user = await User.findById(userId).select('+passwordHash');
   if (!user) throw accountGone();
@@ -138,4 +140,7 @@ export async function deleteAccount(userId, { password }) {
     await OAuthAccount.deleteMany({ userId: user._id });
     await user.deleteOne();
   });
+
+  // Files can't join the transaction, so they go once it has committed
+  await deleteUserUploads(user._id).catch((err) => logger.error({ err }, `Uploads of deleted user ${user._id} not removed`));
 }

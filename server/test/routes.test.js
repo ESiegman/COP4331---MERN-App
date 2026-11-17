@@ -69,7 +69,8 @@ const ROUTES = [
   ['patch', `/notifications/${ID}`, { read: true }, TOKEN, DONE],
   ['post', '/notifications/read-all', undefined, TOKEN, DONE],
 
-  ['post', '/uploads/sign', { kind: 'item', contentType: 'image/png' }, TOKEN, TODO],
+  ['post', '/uploads/sign', { kind: 'item', contentType: 'image/png' }, TOKEN, DONE],
+  ['put', '/uploads/not-a-ticket', undefined, GUEST, DONE],
 
   ['get', '/admin/users?status=banned', undefined, TOKEN, DONE],
   ['post', '/admin/users/ada/ban', { reason: 'Spam' }, TOKEN, DONE],

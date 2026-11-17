@@ -49,6 +49,9 @@ services:
       DISCORD_CLIENT_ID: ${DISCORD_CLIENT_ID:-}
       DISCORD_CLIENT_SECRET: ${DISCORD_CLIENT_SECRET:-}
       OAUTH_REDIRECT_URIS: ${OAUTH_REDIRECT_URIS:-}
+    # Uploaded images
+    volumes:
+      - uploads:/data/uploads
     depends_on:
       db-setup:
         condition: service_completed_successfully
@@ -73,3 +76,4 @@ volumes:
   mongo-config:
   caddy-data:
   caddy-config:
+  uploads:
