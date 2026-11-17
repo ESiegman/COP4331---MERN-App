@@ -11,7 +11,16 @@ const WHAT: Record<NotificationType, string> = {
   new_ranking: "ranked your template",
   new_comment: "commented on your ranking",
   new_like: "liked your ranking",
+  content_removed: "",
 };
+
+// "A moderator removed your comment “...”. Reason: ..." (never says which moderator)
+function removedText(n: AppNotification): string {
+  const kind = n.removed?.kind ?? "content";
+  const title = n.removed?.title ? ` “${n.removed.title}”` : "";
+  const reason = n.removed?.reason ? ` Reason: ${n.removed.reason}` : "";
+  return `A moderator removed your ${kind}${title}.${reason}`;
+}
 
 function NotificationsPage() {
   const navigate = useNavigate();
@@ -54,10 +63,20 @@ function NotificationsPage() {
               style={{ borderLeft: n.read ? undefined : "4px solid var(--accent)" }}
               onClick={() => open(n)}
             >
-              <Avatar profile={n.actor} />
+              {n.type === "content_removed" ? (
+                <span className="avatar bg-danger" aria-hidden="true"><i className="bi bi-shield-exclamation"></i></span>
+              ) : (
+                <Avatar profile={n.actor} />
+              )}
               <span className="flex-grow-1">
-                <strong>{nameOf(n.actor)}</strong> {WHAT[n.type]}
-                {n.ranking?.template?.title ? ` “${n.ranking.template.title}”` : ""}
+                {n.type === "content_removed" ? (
+                  removedText(n)
+                ) : (
+                  <>
+                    <strong>{nameOf(n.actor)}</strong> {WHAT[n.type]}
+                    {n.ranking?.template?.title ? ` “${n.ranking.template.title}”` : ""}
+                  </>
+                )}
                 <span className="d-block small muted">{timeAgo(n.createdAt)}{!n.read && " · new"}</span>
               </span>
             </button>
