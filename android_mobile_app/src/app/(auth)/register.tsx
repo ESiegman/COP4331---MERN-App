@@ -5,24 +5,22 @@ import { Link } from "expo-router";
 const API = "https://mern.esiegman.dev/api";
 
 export default function Register() {
-  const [firstName, setFirstName] = useState("");
-  const [lastName, setLastName] = useState("");
+  const [username, setUsername] = useState("");
   const [email, setEmail] = useState("");
-  const [login, setLogin] = useState("");
   const [password, setPassword] = useState("");
   const [message, setMessage] = useState("");
 
   const handleRegister = async () => {
     setMessage("");
     try {
-      const res = await fetch(`${API}/users`, {
+      const res = await fetch(`${API}/auth/register`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ firstName, lastName, login, password, email }),
+        body: JSON.stringify({ username, email, password }),
       });
       const data = await res.json();
       if (res.ok) {
-        setMessage("Account created! You can log in now.");
+        setMessage("Account created! Verify your email, then log in.");
       } else {
         setMessage(data.error ?? "Registration failed");
       }
@@ -34,11 +32,9 @@ export default function Register() {
   return (
     <View style={styles.container}>
       <Text style={styles.title}>Register</Text>
-      <TextInput style={styles.input} placeholder="First name" value={firstName} onChangeText={setFirstName} />
-      <TextInput style={styles.input} placeholder="Last name" value={lastName} onChangeText={setLastName} />
+      <TextInput style={styles.input} placeholder="Username" autoCapitalize="none" value={username} onChangeText={setUsername} />
       <TextInput style={styles.input} placeholder="Email" autoCapitalize="none" keyboardType="email-address" value={email} onChangeText={setEmail} />
-      <TextInput style={styles.input} placeholder="Login" autoCapitalize="none" value={login} onChangeText={setLogin} />
-      <TextInput style={styles.input} placeholder="Password" secureTextEntry value={password} onChangeText={setPassword} />
+      <TextInput style={styles.input} placeholder="Password (8+ characters)" secureTextEntry value={password} onChangeText={setPassword} />
       <Pressable style={styles.button} onPress={handleRegister}>
         <Text style={styles.buttonText}>Register</Text>
       </Pressable>

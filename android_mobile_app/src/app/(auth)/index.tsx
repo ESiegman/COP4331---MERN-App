@@ -6,7 +6,7 @@ const API = "https://mern.esiegman.dev/api";
 
 export default function Index() {
   const router = useRouter();
-  const [login, setLogin] = useState("");
+  const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [message, setMessage] = useState("");
 
@@ -16,11 +16,11 @@ export default function Index() {
       const res = await fetch(`${API}/auth/login`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ login, password }),
+        body: JSON.stringify({ email, password }),
       });
       const data = await res.json();
       if (res.ok) {
-        setMessage(`Welcome, ${data.user?.firstName ?? login}!`);
+        setMessage(`Welcome, ${data.user?.username ?? email}!`);
       } else {
         setMessage(data.error ?? "Login failed");
       }
@@ -34,10 +34,11 @@ export default function Index() {
       <Text style={styles.title}>Log in</Text>
       <TextInput
         style={styles.input}
-        placeholder="Login"
+        placeholder="Email"
         autoCapitalize="none"
-        value={login}
-        onChangeText={setLogin}
+        keyboardType="email-address"
+        value={email}
+        onChangeText={setEmail}
       />
       <TextInput
         style={styles.input}
