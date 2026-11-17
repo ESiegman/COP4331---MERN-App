@@ -12,6 +12,11 @@ export async function updateAccount(req, res) {
   res.json(user.toAccount());
 }
 
+export async function deleteAccount(req, res) {
+  await usersService.deleteAccount(req.userId, req.valid.body);
+  res.status(204).end();
+}
+
 export async function addPushToken(req, res) {
   await usersService.addPushToken(req.userId, req.valid.body.token);
   res.status(204).end();

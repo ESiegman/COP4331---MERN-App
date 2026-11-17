@@ -7,7 +7,7 @@ Express API for the tier list app. Every route is under `/api`, and all request 
 
 ## Status
 
-48 of the 49 routes work. The other one is wired up, validated and guarded, but answers `501 Not Implemented` until someone picks a provider and writes the integration:
+49 of the 50 routes work. The other one is wired up, validated and guarded, but answers `501 Not Implemented` until someone picks a provider and writes the integration:
 
 | Waiting on | Routes | Where the work goes |
 | --- | --- | --- |
@@ -15,7 +15,7 @@ Express API for the tier list app. Every route is under `/api`, and all request 
 
 Email, push, AI suggestions and Google and Discord login work, each once its settings are in place:
 
-- **Email** goes out through any SMTP server once `SMTP_URL` is set (see Configuration). Until it is set in `/opt/mern/.env`, production drops every email, so nobody new can verify an account there. In development without it, the email, link included, is written to the API log.
+- **Email** goes out through any SMTP server once `SMTP_URL` is set (see Configuration). Production has it set in `/opt/mern/.env` and sends through Resend from `mail.esiegman.dev`. Without it, production would drop every email, so nobody new could verify an account. In development without it, the email, link included, is written to the API log.
 - **Push notifications** go through Expo's push service as soon as the app registers a phone with `POST /api/users/me/push-tokens`. No account or key is needed unless "enhanced push security" is turned on in Expo's dashboard, which needs `EXPO_ACCESS_TOKEN`. Phones Expo reports as uninstalled are dropped from the account.
 - **AI item suggestions** use Claude through Anthropic's API once `ANTHROPIC_API_KEY` is set. Until then `POST /api/templates/suggest-items` answers `501`, which the web app shows as "not available yet".
 - **Google and Discord login** need each provider's client id and secret (`GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET`, `DISCORD_CLIENT_ID` and `DISCORD_CLIENT_SECRET`). A provider without them answers `501` and is left out of `GET /api/auth/oauth/providers`. See [Google and Discord](#google-and-discord).
@@ -43,6 +43,7 @@ Email, push, AI suggestions and Google and Discord login work, each once its set
 | --- | --- | --- | --- |
 | GET | `/api/users/me` | token | Get your account |
 | PATCH | `/api/users/me` | token | Change your profile and notification switches |
+| DELETE | `/api/users/me` | token | Delete your account and everything you made |
 | POST | `/api/users/me/push-tokens` | token | Register this phone for push notifications |
 | DELETE | `/api/users/me/push-tokens` | token | Stop push notifications on this phone |
 | POST | `/api/users/me/oauth/:provider` | token | Link a Google or Discord account |
@@ -483,10 +484,11 @@ Every error response has the same shape. `details` is only present for validatio
 | 400 | `BAD_REQUEST` | Invalid JSON, a used or expired link, an item that is not in the template, liking or commenting on a draft |
 | 401 | `UNAUTHORIZED` | No token, an invalid or expired token, or a wrong email or password |
 | 403 | `EMAIL_NOT_VERIFIED` | Logging in before verifying the email |
+| 403 | `WRONG_PASSWORD` | Deleting an account with the wrong password |
 | 403 | `ACCOUNT_BANNED` | The account is banned: logging in, or any request that needs a token. `error` includes the reason |
 | 403 | `FORBIDDEN` | You can see it, but only its owner or author (or a moderator) may change it, or the route needs a moderator or admin |
 | 404 | `NOT_FOUND` | No such route or document, or one you are not allowed to see |
-| 409 | `CONFLICT` | The email or username is already taken, or a Google or Discord account is already linked |
+| 409 | `CONFLICT` | The email or username is already taken, a Google or Discord account is already linked, or the only admin tries to delete their account |
 | 413 | `TOO_LARGE` | A body over 100 kB |
 | 429 | `RATE_LIMITED` | Too many login, sign-up or email requests, or AI suggestions (see Authentication) |
 | 500 | `INTERNAL` | Anything unexpected. The details are logged on the server, not sent back |
@@ -804,6 +806,33 @@ Send only what changes. `null` clears `displayName`, `bio` or `avatarUrl`.
 ```
 
 Response `200`: the updated Account.
+
+### DELETE /api/users/me
+
+Deletes the account for good, with everything it made, the same as deleting each piece by hand:
+
+- its templates, with their items and every ranking made from them, other people's included
+- its rankings, drafts included, with their comments and likes
+- the comments and likes it left on other people's rankings, whose `commentCount` and `likeCount` go down to match
+- its notifications, and other people's notifications about what it did (a moderator's removal notices stay, since they are about the other person's content)
+- its email links and its linked Google and Discord accounts
+
+The moderation log keeps its entries, showing the user as gone. The username and email are free to sign up with again. The token stops working at once: any request with it gets `401` "This account no longer exists".
+
+An account with a password must send it. A Google or Discord-only account sends no body.
+
+```json
+{ "password": "correct horse battery staple" }
+```
+
+Response `204`.
+
+| Status | `code` | When |
+| --- | --- | --- |
+| 400 | `BAD_REQUEST` | The account has a password and none was sent |
+| 403 | `WRONG_PASSWORD` | The password is wrong |
+| 403 | `ACCOUNT_BANNED` | Banned accounts can't delete themselves; an admin can unban them first |
+| 409 | `CONFLICT` | You are the only admin. Make someone else admin first |
 
 ### POST /api/users/me/push-tokens
 
@@ -1341,6 +1370,7 @@ For trying the API by hand rather than in tests, the sample data gives you accou
 | `routes.test.js` | Every route: guests get `401` where a token is needed, unwritten routes answer `501`, admin routes refuse lower roles, banned accounts get `403` |
 | `lib.test.js` | Tokens, cursors, visibility rules, community ranking maths, notification switches |
 | `auth.integration.test.js` | Sign-up, verification, login, password reset, `/users/me` |
+| `accountDeletion.integration.test.js` | Deleting your account: the password check, the last admin, everything it made going, the counts it touched |
 | `moderation.integration.test.js` | Moderators deleting content, the owner's notice, bans, roles, the log, the setRole command |
 | `oauth.integration.test.js` | Google and Discord login, matching by verified email, taking over unverified sign-ups, linking and unlinking (providers faked) |
 | `models.integration.test.js` | Every model saves against the validators in `db/setup.js` |

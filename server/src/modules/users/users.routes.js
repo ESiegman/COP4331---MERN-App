@@ -11,6 +11,7 @@ const router = Router();
 // The caller's own account. These come first so "me" is never read as a username.
 router.get('/me', requireAuth, controller.getAccount);
 router.patch('/me', requireAuth, validate({ body: schemas.updateAccount }), controller.updateAccount);
+router.delete('/me', requireAuth, validate({ body: schemas.deleteAccount }), controller.deleteAccount);
 router.post('/me/push-tokens', requireAuth, validate({ body: schemas.pushToken }), controller.addPushToken);
 router.delete('/me/push-tokens', requireAuth, validate({ body: schemas.pushToken }), controller.removePushToken);
 router.post(

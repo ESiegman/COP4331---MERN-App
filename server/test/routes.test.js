@@ -31,6 +31,7 @@ const ROUTES = [
 
   ['get', '/users/me', undefined, TOKEN, DONE],
   ['patch', '/users/me', { bio: 'hi' }, TOKEN, DONE],
+  ['delete', '/users/me', { password: 'hunter22' }, TOKEN, DONE],
   ['post', '/users/me/push-tokens', pushToken, TOKEN, DONE],
   ['delete', '/users/me/push-tokens', pushToken, TOKEN, DONE],
   ['post', '/users/me/oauth/discord', oauth, TOKEN, DONE],

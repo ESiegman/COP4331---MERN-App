@@ -15,6 +15,9 @@ export const updateAccount = atLeastOneField(
     .partial(),
 );
 
+// DELETE /users/me. Accounts with a password must send it. Google/Discord-only accounts send nothing.
+export const deleteAccount = z.object({ password: text().min(1).max(200).optional() });
+
 export const pushToken = z.object({
   token: text().regex(/^Expo(nent)?PushToken\[.+\]$/, 'must be an Expo push token'),
 });

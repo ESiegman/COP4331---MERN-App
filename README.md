@@ -80,7 +80,7 @@ All requests and responses are JSON. See [server/README.md](server/README.md) fo
 | Area | Under | What it covers |
 | --- | --- | --- |
 | Auth | `/api/auth` | Register, verify email, log in (also with Google or Discord), reset password |
-| Users | `/api/users` | Your account, notification settings and linked Google or Discord accounts, public profiles |
+| Users | `/api/users` | Your account, notification settings, linked Google or Discord accounts and deleting the account, public profiles |
 | Templates | `/api/templates` | The things to rank and their items, search, the community ranking |
 | Rankings | `/api/rankings` | A person's tier list for a template, the feed, likes |
 | Comments | `/api/rankings/:rankingId/comments`, `/api/comments` | Comments on a ranking |
