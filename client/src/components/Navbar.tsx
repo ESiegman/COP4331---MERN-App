@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Link, NavLink, useNavigate } from "react-router-dom";
+import { Link, NavLink, useNavigate, useSearchParams } from "react-router-dom";
 import { apiFetch } from "../utils/api";
 import { useAuth } from "../utils/useAuth";
 import type { AppNotification, Page } from "../utils/types";
@@ -11,6 +11,8 @@ function Navbar() {
   const { user, signOut } = useAuth();
   const navigate = useNavigate();
   const [unread, setUnread] = useState(0);
+  const [params] = useSearchParams();
+  const onSignUp = params.get("mode") === "register";
 
   // Keep the bell's count fresh while someone is logged in
   useEffect(() => {
@@ -90,7 +92,7 @@ function Navbar() {
                 </>
               ) : (
                 <>
-                  <NavLink to="/login" className={linkClass}>Log in</NavLink>
+                  <NavLink to="/login" className={({ isActive }) => linkClass({ isActive: isActive && !onSignUp })}>Log in</NavLink>
                   <Link to="/login?mode=register" className="btn btn-sm btn-primary ms-md-2">
                     Sign up
                   </Link>

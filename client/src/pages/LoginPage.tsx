@@ -10,10 +10,13 @@ type Mode = "login" | "register" | "forgot";
 function LoginPage() {
   const { user, signIn } = useAuth();
   const location = useLocation();
-  const [params] = useSearchParams();
+  const [params, setParams] = useSearchParams();
   const goBackTo = (location.state as { from?: string } | null)?.from ?? "/";
 
-  const [mode, setMode] = useState<Mode>(params.get("mode") === "register" ? "register" : "login");
+  // The URL decides the mode (/login, /login?mode=register, /login?mode=forgot), so the navbar
+  // links and the links under the form all work, even while this page is already showing.
+  const modeParam = params.get("mode");
+  const mode: Mode = modeParam === "register" ? "register" : modeParam === "forgot" ? "forgot" : "login";
   const [email, setEmail] = useState("");
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
@@ -23,13 +26,21 @@ function LoginPage() {
   // Set when the account exists but its email is not verified yet
   const [needsVerification, setNeedsVerification] = useState(false);
 
-  if (user) return <Navigate to={goBackTo} replace />;
-
-  function switchMode(next: Mode) {
-    setMode(next);
+  // When the mode changes (from the navbar or the links below), clear the old messages.
+  // Email stays filled in so people don't have to retype it.
+  const [shownMode, setShownMode] = useState(mode);
+  if (shownMode !== mode) {
+    setShownMode(mode);
     setError("");
     setMessage("");
     setNeedsVerification(false);
+  }
+
+  if (user) return <Navigate to={goBackTo} replace />;
+
+  function switchMode(next: Mode) {
+    // Keep location.state so "log in, then go back to where you were" still works
+    setParams(next === "login" ? {} : { mode: next }, { replace: true, state: location.state });
   }
 
   async function submit(e: FormEvent) {
@@ -128,9 +139,10 @@ function LoginPage() {
                 onChange={(e) => setPassword(e.target.value)}
                 autoComplete={mode === "login" ? "current-password" : "new-password"}
                 minLength={mode === "register" ? 8 : undefined}
+                maxLength={mode === "register" ? 72 : undefined}
                 required
               />
-              {mode === "register" && <div className="form-text">At least 8 characters.</div>}
+              {mode === "register" && <div className="form-text">8 to 72 characters.</div>}
             </div>
           )}
 

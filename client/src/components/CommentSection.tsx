@@ -4,6 +4,7 @@ import { apiFetch } from "../utils/api";
 import { useAuth } from "../utils/useAuth";
 import { nameOf, timeAgo } from "../utils/format";
 import type { Comment } from "../utils/types";
+import { useConfirm } from "../utils/useConfirm";
 import { usePagedList } from "../utils/usePagedList";
 import Avatar from "./Avatar";
 import LoadMore from "./LoadMore";
@@ -11,6 +12,7 @@ import Notice from "./Notice";
 
 function CommentSection({ rankingId, ownerId }: { rankingId: string; ownerId: string }) {
   const { user } = useAuth();
+  const { confirm, dialog } = useConfirm();
   const list = usePagedList<Comment>(`api/rankings/${rankingId}/comments`, 20);
   const [body, setBody] = useState("");
   const [sending, setSending] = useState(false);
@@ -32,7 +34,7 @@ function CommentSection({ rankingId, ownerId }: { rankingId: string; ownerId: st
   }
 
   async function remove(id: string) {
-    if (!window.confirm("Delete this comment?")) return;
+    if (!(await confirm({ title: "Delete comment?", message: "This comment will be removed for everyone.", confirmLabel: "Delete" }))) return;
     const res = await apiFetch<null>(`api/comments/${id}`, { method: "DELETE" });
     if (res.ok) list.setItems((current) => current.filter((c) => c._id !== id));
     else setError(res.error ?? "Could not delete the comment");
@@ -103,6 +105,7 @@ function CommentSection({ rankingId, ownerId }: { rankingId: string; ownerId: st
           <Link to="/login" state={{ from: `/rankings/${rankingId}` }}>Log in</Link> to comment.
         </p>
       )}
+      {dialog}
     </section>
   );
 }

@@ -9,6 +9,9 @@ export interface Session {
 
 const STORAGE_KEY = "tierlist_session";
 
+// Sent on window when the API says the saved token is no longer valid (see api.ts)
+export const SESSION_EXPIRED_EVENT = "tierlist:session-expired";
+
 export function getSession(): Session | null {
   try {
     const stored = localStorage.getItem(STORAGE_KEY);

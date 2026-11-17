@@ -1,6 +1,6 @@
-import { useCallback, useMemo, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { AuthContext, type AuthValue } from "./authContext";
-import { clearSession, getSession, saveSession, type Session } from "./session";
+import { SESSION_EXPIRED_EVENT, clearSession, getSession, saveSession, type Session } from "./session";
 import type { Account } from "./types";
 
 export function AuthProvider({ children }: { children: ReactNode }) {
@@ -23,6 +23,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const signOut = useCallback(() => {
     clearSession();
     setSession(null);
+  }, []);
+
+  // api.ts has already cleared the saved token; drop the user from state too
+  useEffect(() => {
+    const onExpired = () => setSession(null);
+    window.addEventListener(SESSION_EXPIRED_EVENT, onExpired);
+    return () => window.removeEventListener(SESSION_EXPIRED_EVENT, onExpired);
   }, []);
 
   const value = useMemo<AuthValue>(

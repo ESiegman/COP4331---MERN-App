@@ -48,9 +48,10 @@ function ResetPasswordPage() {
                 onChange={(e) => setPassword(e.target.value)}
                 autoComplete="new-password"
                 minLength={8}
+                maxLength={72}
                 required
               />
-              <div className="form-text">At least 8 characters.</div>
+              <div className="form-text">8 to 72 characters.</div>
             </div>
             {error && <Notice kind="error">{error}</Notice>}
             <button type="submit" className="btn btn-primary w-100" disabled={busy}>
