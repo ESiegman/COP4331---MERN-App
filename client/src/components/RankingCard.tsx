@@ -24,10 +24,13 @@ function RankingCard({ ranking }: { ranking: Ranking }) {
           <Avatar profile={ranking.owner} />
           <span className="text-truncate">{nameOf(ranking.owner)}</span>
         </div>
-        <div className="small muted mt-2 d-flex gap-3">
+        <div className="small muted mt-2 d-flex flex-wrap gap-2 gap-sm-3">
           <span><i className="bi bi-heart-fill me-1" aria-hidden="true"></i>{ranking.likeCount}</span>
           <span><i className="bi bi-chat-fill me-1" aria-hidden="true"></i>{ranking.commentCount}</span>
           {ranking.publishedAt ? <span>{timeAgo(ranking.publishedAt)}</span> : <span className="badge text-bg-secondary">Draft</span>}
+          {ranking.visibility !== "public" && (
+            <span className="badge text-bg-light border">{ranking.visibility === "private" ? "Private" : "Unlisted"}</span>
+          )}
         </div>
       </div>
     </Link>

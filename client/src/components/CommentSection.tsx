@@ -17,6 +17,11 @@ function CommentSection({ rankingId, ownerId }: { rankingId: string; ownerId: st
   const [body, setBody] = useState("");
   const [sending, setSending] = useState(false);
   const [error, setError] = useState("");
+  // Editing one of your own comments
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editBody, setEditBody] = useState("");
+  const [savingEdit, setSavingEdit] = useState(false);
+  const [editError, setEditError] = useState("");
 
   async function send(e: FormEvent) {
     e.preventDefault();
@@ -31,6 +36,25 @@ function CommentSection({ rankingId, ownerId }: { rankingId: string; ownerId: st
       setError(res.error ?? "Could not post your comment");
     }
     setSending(false);
+  }
+
+  function startEdit(comment: Comment) {
+    setEditingId(comment._id);
+    setEditBody(comment.body);
+    setEditError("");
+  }
+
+  async function saveEdit(id: string) {
+    setSavingEdit(true);
+    setEditError("");
+    const res = await apiFetch<Comment>(`api/comments/${id}`, { method: "PATCH", body: { body: editBody } });
+    if (res.ok) {
+      list.setItems((current) => current.map((c) => (c._id === id ? res.data : c)));
+      setEditingId(null);
+    } else {
+      setEditError(res.error ?? "Could not save your comment");
+    }
+    setSavingEdit(false);
   }
 
   async function remove(id: string) {
@@ -52,6 +76,9 @@ function CommentSection({ rankingId, ownerId }: { rankingId: string; ownerId: st
       {list.items.map((comment) => {
         // The author can delete their comment, and so can the ranking's owner
         const canDelete = user && (user._id === comment.authorId || user._id === ownerId);
+        // Only the author can edit
+        const canEdit = user && user._id === comment.authorId;
+        const isEditing = editingId === comment._id;
         return (
           <div className="comment d-flex gap-3" key={comment._id}>
             <Avatar profile={comment.author} />
@@ -64,17 +91,54 @@ function CommentSection({ rankingId, ownerId }: { rankingId: string; ownerId: st
                 )}
                 <span className="muted ms-2">{timeAgo(comment.createdAt)}</span>
               </div>
-              <div style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>{comment.body}</div>
+              {isEditing ? (
+                <div className="mt-1">
+                  <label htmlFor={`edit-${comment._id}`} className="visually-hidden">Edit your comment</label>
+                  <textarea
+                    id={`edit-${comment._id}`}
+                    className="form-control mb-2"
+                    rows={3}
+                    maxLength={1000}
+                    value={editBody}
+                    onChange={(e) => setEditBody(e.target.value)}
+                  />
+                  {editError && <Notice kind="error">{editError}</Notice>}
+                  <div className="d-flex gap-2">
+                    <button
+                      type="button"
+                      className="btn btn-sm btn-primary"
+                      onClick={() => saveEdit(comment._id)}
+                      disabled={savingEdit || !editBody.trim()}
+                    >
+                      {savingEdit ? "Saving…" : "Save"}
+                    </button>
+                    <button type="button" className="btn btn-sm btn-outline-secondary" onClick={() => setEditingId(null)} disabled={savingEdit}>
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>{comment.body}</div>
+              )}
             </div>
-            {canDelete && (
-              <button
-                type="button"
-                className="btn btn-sm btn-outline-danger align-self-start"
-                onClick={() => remove(comment._id)}
-                aria-label="Delete comment"
-              >
-                <i className="bi bi-trash3" aria-hidden="true"></i>
-              </button>
+            {!isEditing && (canEdit || canDelete) && (
+              <div className="d-flex gap-1 align-self-start">
+                {canEdit && (
+                  <button type="button" className="btn btn-sm btn-outline-secondary" onClick={() => startEdit(comment)} aria-label="Edit comment">
+                    <i className="bi bi-pencil" aria-hidden="true"></i>
+                  </button>
+                )}
+                {canDelete && (
+                  <button
+                    type="button"
+                    className="btn btn-sm btn-outline-danger"
+                    onClick={() => remove(comment._id)}
+                    aria-label="Delete comment"
+                  >
+                    <i className="bi bi-trash3" aria-hidden="true"></i>
+                  </button>
+                )}
+              </div>
             )}
           </div>
         );
