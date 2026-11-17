@@ -1,0 +1,56 @@
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import { apiFetch } from "./api";
+import { AuthContext, type AuthValue } from "./authContext";
+import { SESSION_EXPIRED_EVENT, clearSession, getSession, saveSession, type Session } from "./session";
+import type { Account } from "./types";
+
+export function AuthProvider({ children }: { children: ReactNode }) {
+  const [session, setSession] = useState<Session | null>(() => getSession());
+
+  const signIn = useCallback((next: Session) => {
+    saveSession(next);
+    setSession(next);
+  }, []);
+
+  const updateUser = useCallback((user: Account) => {
+    setSession((current) => {
+      if (!current) return current;
+      const next = { ...current, user };
+      saveSession(next);
+      return next;
+    });
+  }, []);
+
+  const signOut = useCallback(() => {
+    clearSession();
+    setSession(null);
+  }, []);
+
+  // The saved account can be out of date (for example after changing settings on another device),
+  // so ask the API for the current one once per login. A rejected token is handled by api.ts.
+  const token = session?.token ?? null;
+  useEffect(() => {
+    if (!token) return;
+    let cancelled = false;
+    void apiFetch<Account>("api/users/me").then((res) => {
+      if (!cancelled && res.ok) updateUser(res.data);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [token, updateUser]);
+
+  // api.ts has already cleared the saved token; drop the user from state too
+  useEffect(() => {
+    const onExpired = () => setSession(null);
+    window.addEventListener(SESSION_EXPIRED_EVENT, onExpired);
+    return () => window.removeEventListener(SESSION_EXPIRED_EVENT, onExpired);
+  }, []);
+
+  const value = useMemo<AuthValue>(
+    () => ({ user: session?.user ?? null, token: session?.token ?? null, signIn, updateUser, signOut }),
+    [session, signIn, updateUser, signOut]
+  );
+
+  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
+}

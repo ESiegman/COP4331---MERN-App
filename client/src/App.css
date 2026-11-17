@@ -1,9 +1,253 @@
-.app-container {
-  max-width: 1140px;
+/* Layout */
+.page {
+  width: 100%;
+  max-width: 1080px;
   margin: 0 auto;
-  padding: 1.5rem 1rem;
+  padding: 1.5rem 1rem 4rem;
+  flex: 1;
 }
 
-.brand-gradient {
-  background: linear-gradient(135deg, #0d6efd 0%, #0a58ca 100%);
+.panel {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 0.75rem;
+  padding: 1.25rem;
+}
+
+.muted {
+  color: var(--ink-soft);
+}
+
+/* Navbar */
+.topbar {
+  background: var(--ink);
+  color: #fff;
+}
+.topbar a {
+  color: inherit;
+  text-decoration: none;
+}
+.brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.6rem;
+  font-weight: 800;
+  font-size: 1.25rem;
+  letter-spacing: -0.02em;
+}
+/* Six stacked bars in the real S to F colors: the brand mark */
+.brand-mark {
+  display: inline-grid;
+  gap: 2px;
+  width: 22px;
+}
+.brand-mark span {
+  height: 4px;
+  border-radius: 1px;
+}
+.brand-mark span:nth-child(1) { background: var(--tier-s); width: 100%; }
+.brand-mark span:nth-child(2) { background: var(--tier-a); width: 88%; }
+.brand-mark span:nth-child(3) { background: var(--tier-b); width: 76%; }
+.brand-mark span:nth-child(4) { background: var(--tier-c); width: 64%; }
+.brand-mark span:nth-child(5) { background: var(--tier-d); width: 52%; }
+.brand-mark span:nth-child(6) { background: var(--tier-f); width: 40%; }
+
+.topbar .nav-link-plain {
+  color: rgba(255, 255, 255, 0.78);
+  padding: 0.4rem 0.7rem;
+  border-radius: 0.4rem;
+  font-weight: 600;
+}
+.topbar .nav-link-plain:hover,
+.topbar .nav-link-plain.active {
+  color: #fff;
+  background: rgba(255, 255, 255, 0.12);
+}
+.bell-badge {
+  position: absolute;
+  top: -2px;
+  right: -2px;
+  background: var(--tier-s);
+  color: var(--ink);
+  font-size: 0.65rem;
+  font-weight: 800;
+  border-radius: 999px;
+  min-width: 1.1rem;
+  height: 1.1rem;
+  display: grid;
+  place-items: center;
+  padding: 0 0.25rem;
+}
+
+/* Avatar */
+.avatar {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: var(--accent);
+  color: #fff;
+  font-weight: 800;
+  display: inline-grid;
+  place-items: center;
+  flex: none;
+  overflow: hidden;
+  font-size: 0.85rem;
+}
+.avatar img { width: 100%; height: 100%; object-fit: cover; }
+.avatar-lg { width: 72px; height: 72px; font-size: 1.8rem; }
+
+/* Cards in lists */
+.tile-card {
+  display: block;
+  height: 100%;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 0.75rem;
+  overflow: hidden;
+  color: inherit;
+  text-decoration: none;
+  transition: border-color 0.15s ease;
+}
+.tile-card:hover { border-color: var(--accent); color: inherit; }
+.tile-cover {
+  height: 96px;
+  background: var(--paper);
+  background-size: cover;
+  background-position: center;
+}
+/* With no cover image, show the template's own tier labels as stripes */
+.tile-cover-stripes {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 10px 12px;
+  background: var(--paper);
+}
+.tile-cover-stripes span {
+  flex: 1;
+  border-radius: 2px;
+}
+.tile-body { padding: 0.9rem 1rem 1rem; }
+
+/* Tier board */
+.board {
+  border: 2px solid var(--ink);
+  border-radius: 0.6rem;
+  overflow: hidden;
+  background: var(--ink);
+  display: grid;
+  gap: 2px;
+}
+.tier-row {
+  display: grid;
+  grid-template-columns: 96px 1fr;
+  background: #262a36;
+  min-height: 92px;
+}
+.tier-label {
+  display: grid;
+  place-items: center;
+  padding: 0.4rem;
+  font-weight: 800;
+  font-size: 1.5rem;
+  color: var(--ink);
+  text-align: center;
+  word-break: break-word;
+  line-height: 1.1;
+}
+.tier-label input {
+  width: 100%;
+  border: 0;
+  background: rgba(255, 255, 255, 0.45);
+  border-radius: 0.3rem;
+  text-align: center;
+  font: inherit;
+  color: inherit;
+  padding: 0.1rem;
+}
+.tier-label input:focus { background: #fff; }
+.tier-label .tier-tools {
+  display: flex;
+  gap: 0.25rem;
+  margin-top: 0.3rem;
+}
+.tier-items {
+  display: flex;
+  flex-wrap: wrap;
+  align-content: flex-start;
+  gap: 4px;
+  padding: 4px;
+  min-height: 92px;
+}
+.tier-items.over,
+.pool.over {
+  outline: 3px dashed var(--accent);
+  outline-offset: -3px;
+}
+
+.pool {
+  margin-top: 1rem;
+  background: var(--surface);
+  border: 2px dashed var(--line);
+  border-radius: 0.6rem;
+  padding: 0.6rem;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  min-height: 100px;
+  align-content: flex-start;
+}
+
+/* One thing to rank */
+.item-tile {
+  width: 84px;
+  height: 84px;
+  border-radius: 0.35rem;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  overflow: hidden;
+  display: grid;
+  place-items: center;
+  position: relative;
+  touch-action: none;
+  user-select: none;
+  flex: none;
+}
+.item-tile.draggable { cursor: grab; }
+.item-tile.dragging { opacity: 0.35; }
+.item-tile.overlay { cursor: grabbing; box-shadow: 0 8px 20px rgba(0, 0, 0, 0.35); }
+.item-tile img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  pointer-events: none;
+}
+.item-tile .item-name {
+  font-size: 0.72rem;
+  font-weight: 600;
+  line-height: 1.15;
+  text-align: center;
+  padding: 0.25rem;
+  overflow-wrap: anywhere;
+}
+.item-tile.with-image .item-name {
+  position: absolute;
+  inset: auto 0 0 0;
+  background: rgba(21, 23, 30, 0.78);
+  color: #fff;
+  padding: 0.15rem 0.2rem;
+}
+
+/* Comments */
+.comment + .comment {
+  border-top: 1px solid var(--line);
+  margin-top: 0.9rem;
+  padding-top: 0.9rem;
+}
+
+/* Small screens: narrower labels and tiles */
+@media (max-width: 575.98px) {
+  .tier-row { grid-template-columns: 64px 1fr; }
+  .tier-label { font-size: 1.1rem; }
+  .item-tile { width: 64px; height: 64px; }
 }
