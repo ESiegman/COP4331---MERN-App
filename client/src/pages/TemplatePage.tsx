@@ -343,32 +343,32 @@ function TemplatePage() {
           <>
             <hr />
             {editingItemId && (
-              <form onSubmit={saveItem} className="row g-2 align-items-end mb-3" aria-label="Edit item">
-                <div className="col-12 col-md-4">
+              <form onSubmit={saveItem} className="row g-3 align-items-start mb-4" aria-label="Edit item">
+                <div className="col-12 col-md-5">
                   <label htmlFor="editItemName" className="form-label fw-semibold">Item name</label>
                   <input id="editItemName" className="form-control" maxLength={60} value={itemName} onChange={(e) => setItemName(e.target.value)} required />
                 </div>
-                <div className="col-12 col-md">
+                <div className="col-12 col-md-7">
                   <ImageField label="Picture (optional)" kind="item" value={itemImage} onChange={setItemImage} disabled={busy} help="Leave empty for a text-only item. Otherwise paste a link or upload a JPEG, PNG or WebP picture up to 5 MB." />
                   <AltTextField value={itemAlt} onChange={setItemAlt} hasPicture={Boolean(itemImage.trim())} disabled={busy} />
                 </div>
-                <div className="col-12 col-md-auto d-flex gap-2">
+                <div className="col-12 d-flex gap-2">
                   <button type="submit" className="btn btn-primary" disabled={busy || !itemName.trim() || (Boolean(itemImage.trim()) && !itemAlt.trim())}>Save item</button>
                   <button type="button" className="btn btn-outline-secondary" onClick={() => setEditingItemId(null)} disabled={busy}>Cancel</button>
                 </div>
               </form>
             )}
-            <form onSubmit={addItem} className="row g-2 align-items-end">
-              <div className="col-12 col-md-4">
+            <form onSubmit={addItem} className="row g-3 align-items-start" aria-label="Add item">
+              <div className="col-12 col-md-5">
                 <label htmlFor="itemName" className="form-label fw-semibold">New item</label>
                 <input id="itemName" className="form-control" maxLength={60} value={newName} onChange={(e) => setNewName(e.target.value)} required />
               </div>
-              <div className="col-12 col-md">
+              <div className="col-12 col-md-7">
                 <ImageField label="Picture (optional)" kind="item" value={newImage} onChange={setNewImage} disabled={busy} help="Leave empty for a text-only item. Otherwise paste a link or upload a JPEG, PNG or WebP picture up to 5 MB." />
                 <AltTextField value={newAlt} onChange={setNewAlt} hasPicture={Boolean(newImage.trim())} disabled={busy} />
               </div>
-              <div className="col-12 col-md-auto">
-                <button type="submit" className="btn btn-primary w-100" disabled={busy || (Boolean(newImage.trim()) && !newAlt.trim())}>Add item</button>
+              <div className="col-12">
+                <button type="submit" className="btn btn-primary" disabled={busy || (Boolean(newImage.trim()) && !newAlt.trim())}>Add item</button>
               </div>
             </form>
             <div className="mt-4">
