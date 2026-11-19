@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import Avatar from "../components/Avatar";
+import AltTextField from "../components/AltTextField";
 import ImageField from "../components/ImageField";
 import LoadMore from "../components/LoadMore";
 import Notice from "../components/Notice";
@@ -31,6 +32,7 @@ function TemplatePage() {
   // Owner tools
   const [newName, setNewName] = useState("");
   const [newImage, setNewImage] = useState("");
+  const [newAlt, setNewAlt] = useState("");
 
   // Editing the template's details, and renaming one item at a time
   const [editing, setEditing] = useState(false);
@@ -45,6 +47,7 @@ function TemplatePage() {
   const [editingItemId, setEditingItemId] = useState<string | null>(null);
   const [itemName, setItemName] = useState("");
   const [itemImage, setItemImage] = useState("");
+  const [itemAlt, setItemAlt] = useState("");
 
   const rankings = usePagedList<Ranking>(templateId ? `api/templates/${templateId}/rankings` : null, 6);
 
@@ -91,13 +94,14 @@ function TemplatePage() {
     setError("");
     const res = await apiFetch<Item>(`api/templates/${templateId}/items`, {
       method: "POST",
-      body: { name: newName, imageUrl: newImage.trim() || null },
+      body: { name: newName, imageUrl: newImage.trim() || null, altText: newImage.trim() ? newAlt.trim() : null },
     });
     setBusy(false);
     if (res.ok) {
       setDetail((d) => (d ? { ...d, items: [...d.items, res.data] } : d));
       setNewName("");
       setNewImage("");
+      setNewAlt("");
     } else {
       setError(res.error ?? "Could not add the item");
     }
@@ -144,6 +148,7 @@ function TemplatePage() {
     setEditingItemId(item._id);
     setItemName(item.name);
     setItemImage(item.imageUrl ?? "");
+    setItemAlt(item.altText ?? "");
   }
 
   async function saveItem(e: FormEvent) {
@@ -153,7 +158,7 @@ function TemplatePage() {
     setError("");
     const res = await apiFetch<Item>(`api/templates/${templateId}/items/${editingItemId}`, {
       method: "PATCH",
-      body: { name: itemName.trim(), imageUrl: itemImage.trim() || null },
+      body: { name: itemName.trim(), imageUrl: itemImage.trim() || null, altText: itemImage.trim() ? itemAlt.trim() : null },
     });
     setBusy(false);
     if (res.ok) {
@@ -293,7 +298,7 @@ function TemplatePage() {
         {communityBoard && community && community.rankingCount > 0 ? (
           <>
             <p className="muted small">Averaged from {community.rankingCount} published {community.rankingCount === 1 ? "ranking" : "rankings"}.</p>
-            <TierBoard items={items} board={{ ...communityBoard, pool: [] }} />
+            <TierBoard title="Community ranking" items={items} board={{ ...communityBoard, pool: [] }} />
           </>
         ) : (
           <p className="muted mb-0">Nobody has published a ranking yet. Yours could be the first.</p>
@@ -344,10 +349,11 @@ function TemplatePage() {
                   <input id="editItemName" className="form-control" maxLength={60} value={itemName} onChange={(e) => setItemName(e.target.value)} required />
                 </div>
                 <div className="col-12 col-md">
-                  <ImageField label="Picture (optional)" kind="item" value={itemImage} onChange={setItemImage} disabled={busy} />
+                  <ImageField label="Picture (optional)" kind="item" value={itemImage} onChange={setItemImage} disabled={busy} help="Leave empty for a text-only item. Otherwise paste a link or upload a JPEG, PNG or WebP picture up to 5 MB." />
+                  <AltTextField value={itemAlt} onChange={setItemAlt} hasPicture={Boolean(itemImage.trim())} disabled={busy} />
                 </div>
                 <div className="col-12 col-md-auto d-flex gap-2">
-                  <button type="submit" className="btn btn-primary" disabled={busy || !itemName.trim()}>Save item</button>
+                  <button type="submit" className="btn btn-primary" disabled={busy || !itemName.trim() || (Boolean(itemImage.trim()) && !itemAlt.trim())}>Save item</button>
                   <button type="button" className="btn btn-outline-secondary" onClick={() => setEditingItemId(null)} disabled={busy}>Cancel</button>
                 </div>
               </form>
@@ -358,10 +364,11 @@ function TemplatePage() {
                 <input id="itemName" className="form-control" maxLength={60} value={newName} onChange={(e) => setNewName(e.target.value)} required />
               </div>
               <div className="col-12 col-md">
-                <ImageField label="Picture (optional)" kind="item" value={newImage} onChange={setNewImage} disabled={busy} />
+                <ImageField label="Picture (optional)" kind="item" value={newImage} onChange={setNewImage} disabled={busy} help="Leave empty for a text-only item. Otherwise paste a link or upload a JPEG, PNG or WebP picture up to 5 MB." />
+                <AltTextField value={newAlt} onChange={setNewAlt} hasPicture={Boolean(newImage.trim())} disabled={busy} />
               </div>
               <div className="col-12 col-md-auto">
-                <button type="submit" className="btn btn-primary w-100" disabled={busy}>Add item</button>
+                <button type="submit" className="btn btn-primary w-100" disabled={busy || (Boolean(newImage.trim()) && !newAlt.trim())}>Add item</button>
               </div>
             </form>
             <div className="mt-4">

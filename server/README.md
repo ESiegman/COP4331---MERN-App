@@ -380,6 +380,7 @@ erDiagram
         ObjectId templateId FK
         string name
         string imageUrl
+        string altText
         date createdAt
     }
     rankings {
@@ -567,6 +568,7 @@ What everyone else sees of a user. It appears as `owner`, `author` and `actor` o
   "templateId": "6721a4b2c2b8a1d4e5f60711",
   "name": "Chips",
   "imageUrl": null,
+  "altText": null,
   "createdAt": "2026-11-15T17:28:23.547Z"
 }
 ```
@@ -923,7 +925,7 @@ Creates the template and its starting items together.
 | `coverImageUrl` | An `https` URL, or `null` |
 | `tierLabels` | 1 to 12 labels of 1 to 20 characters. Default `S A B C D F` |
 | `visibility` | `public` (default), `unlisted` or `private` |
-| `items` | Up to 200 of `{ name, imageUrl }`. `name` is 1 to 60 characters, `imageUrl` an `https` URL (or an uploaded image's `url`) or `null` |
+| `items` | Up to 200 of `{ name, imageUrl, altText }`. `name` is 1 to 60 characters, `imageUrl` an `https` URL (or an uploaded image's `url`) or `null`. `altText` (1 to 200 characters) describes the picture and is **required whenever `imageUrl` is set**. Items with no picture are text only |
 
 ```json
 {
@@ -999,18 +1001,18 @@ Response `204`. Errors: `403`, `404`.
 ### POST /api/templates/:templateId/items
 
 ```json
-{ "name": "Soda", "imageUrl": null }
+{ "name": "Soda", "imageUrl": "https://example.com/soda.png", "altText": "A red can of soda" }
 ```
 
-Response `201`: the new Item. It shows up as unranked in every existing ranking.
+`altText` is required when `imageUrl` is set. Leave both out for a text-only item. Response `201`: the new Item. It shows up as unranked in every existing ranking.
 
-Errors: `403`, `404`.
+Errors: `400` (a picture without `altText`), `403`, `404`.
 
 ### PATCH /api/templates/:templateId/items/:itemId
 
-Either or both of `name` and `imageUrl`. Response `200`: the updated Item.
+Any of `name`, `imageUrl` and `altText`. Sending an `imageUrl` also needs an `altText`. Setting `imageUrl` to `null` clears `altText` too. Response `200`: the updated Item.
 
-Errors: `403`, `404` no such template, or the item is not in it.
+Errors: `400`, `403`, `404` no such template, or the item is not in it.
 
 ### DELETE /api/templates/:templateId/items/:itemId
 

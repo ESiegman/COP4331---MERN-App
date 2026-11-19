@@ -1,19 +1,29 @@
 import { useState, type FormEvent } from "react";
 import { useNavigate } from "react-router-dom";
+import AltTextField from "../components/AltTextField";
 import ImageField from "../components/ImageField";
 import Notice from "../components/Notice";
 import { apiFetch } from "../utils/api";
 import type { TemplateDetail, Visibility } from "../utils/types";
 
-// One item per line. "Name | https://image-link" adds a picture.
-function parseItems(text: string): { name: string; imageUrl: string | null }[] {
+interface DraftItem {
+  name: string;
+  imageUrl: string | null;
+  altText: string | null;
+}
+
+// One item per line. "Name" is a text-only item. "Name | https://image-link | What the picture shows"
+// adds a picture, and the description is required with it (it is read aloud by screen readers).
+function parseItems(text: string): DraftItem[] {
   return text
     .split("\n")
     .map((line) => line.trim())
     .filter(Boolean)
     .map((line) => {
-      const [name, image] = line.split("|").map((part) => part.trim());
-      return { name, imageUrl: image ? image : null };
+      const [name, image, ...description] = line.split("|").map((part) => part.trim());
+      const imageUrl = image ? image : null;
+      const altText = description.join(" | ").trim();
+      return { name, imageUrl, altText: imageUrl ? altText || null : null };
     });
 }
 
@@ -29,6 +39,7 @@ function CreateTemplatePage() {
   // The "add an item with a picture" helper below the list
   const [photoName, setPhotoName] = useState("");
   const [photoUrl, setPhotoUrl] = useState("");
+  const [photoAlt, setPhotoAlt] = useState("");
   const [busy, setBusy] = useState(false);
   const [suggesting, setSuggesting] = useState(false);
   const [error, setError] = useState("");
@@ -61,15 +72,24 @@ function CreateTemplatePage() {
   function addPhotoItem() {
     const name = photoName.replace(/[|\n]/g, " ").trim();
     if (!name) return;
-    const line = photoUrl.trim() ? `${name} | ${photoUrl.trim()}` : name;
+    const alt = photoAlt.replace(/[|\n]/g, " ").trim();
+    const line = photoUrl.trim() ? `${name} | ${photoUrl.trim()} | ${alt}` : name;
     setItemsText((current) => [current.trim(), line].filter(Boolean).join("\n"));
     setPhotoName("");
     setPhotoUrl("");
+    setPhotoAlt("");
   }
 
   async function submit(e: FormEvent) {
     e.preventDefault();
     setError("");
+
+    const items = parseItems(itemsText);
+    const undescribed = items.find((item) => item.imageUrl && !item.altText);
+    if (undescribed) {
+      setError(`“${undescribed.name}” has a picture but no description. Write “Name | picture link | what the picture shows”, or remove its link for a text-only item.`);
+      return;
+    }
 
     const labels = tierLabels.split(",").map((label) => label.trim()).filter(Boolean);
     if (labels.length === 0 || labels.length > 12) {
@@ -87,7 +107,7 @@ function CreateTemplatePage() {
         coverImageUrl: coverImageUrl.trim() || undefined,
         tierLabels: labels,
         visibility,
-        items: parseItems(itemsText),
+        items,
       },
     });
     setBusy(false);
@@ -143,7 +163,7 @@ function CreateTemplatePage() {
             </button>
           </div>
           <textarea id="items" className="form-control font-monospace" rows={8} value={itemsText} onChange={(e) => setItemsText(e.target.value)} placeholder={"Beef jerky\nSour gummy worms\nHot Cheetos | https://example.com/cheetos.jpg"} />
-          <div className="form-text">One item per line. To add a picture, put its https link after a “|”, or use the box below. You can add more later.</div>
+          <div className="form-text">One item per line. Just a name makes a text-only item. For a picture, write “Name | https link | what the picture shows”, or use the box below. You can add more later.</div>
         </div>
 
         <fieldset className="mb-3 border rounded p-3">
@@ -154,8 +174,9 @@ function CreateTemplatePage() {
           </div>
           <div className="mb-2">
             <ImageField label="Item picture" kind="item" value={photoUrl} onChange={setPhotoUrl} disabled={busy} />
+            <AltTextField value={photoAlt} onChange={setPhotoAlt} hasPicture={Boolean(photoUrl.trim())} disabled={busy} />
           </div>
-          <button type="button" className="btn btn-sm btn-outline-primary" onClick={addPhotoItem} disabled={!photoName.trim()}>
+          <button type="button" className="btn btn-sm btn-outline-primary" onClick={addPhotoItem} disabled={!photoName.trim() || (Boolean(photoUrl.trim()) && !photoAlt.trim())}>
             Add to the list
           </button>
         </fieldset>

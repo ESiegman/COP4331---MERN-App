@@ -4,6 +4,7 @@ import Avatar from "../components/Avatar";
 import CommentSection from "../components/CommentSection";
 import LikeButton from "../components/LikeButton";
 import Notice from "../components/Notice";
+import DownloadButton from "../components/DownloadButton";
 import ShareButton from "../components/ShareButton";
 import TierBoard from "../components/TierBoard";
 import { boardFrom, type Board } from "../utils/board";
@@ -206,6 +207,8 @@ function RankingPage() {
         <div className="d-flex flex-wrap gap-2 align-items-center">
           {!isDraft && <LikeButton rankingId={ranking._id} initialLiked={detail.likedByMe} initialCount={ranking.likeCount} />}
           {!isDraft && <ShareButton url={shareUrl} image={{ title: heading, board, items }} />}
+          {/* Drafts too, so an owner can save their work before publishing */}
+          <DownloadButton image={{ title: heading, board, items }} />
           {canModerate && (
             <button type="button" className="btn btn-sm btn-outline-danger" onClick={() => void deleteRanking(true)}>
               <i className="bi bi-shield-x me-1" aria-hidden="true"></i>Remove
@@ -262,7 +265,7 @@ function RankingPage() {
         </div>
       )}
 
-      <TierBoard items={items} board={board} onChange={isOwner ? (next) => edit({ board: next }) : undefined} />
+      <TierBoard title={heading} items={items} board={board} onChange={isOwner ? (next) => edit({ board: next }) : undefined} />
 
       {isOwner && (
         <div className="mt-3">

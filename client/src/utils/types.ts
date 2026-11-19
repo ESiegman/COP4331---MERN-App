@@ -66,6 +66,8 @@ export interface Item {
   templateId: string;
   name: string;
   imageUrl: string | null;
+  // What the picture shows, for screen readers. Older items with a picture may not have one.
+  altText?: string | null;
 }
 
 export interface Tier {
