@@ -16,6 +16,7 @@ import {
   type DragStartEvent,
 } from "@dnd-kit/core";
 import { POOL, moveItem, type Board } from "../utils/board";
+import { useFullscreen } from "../utils/useFullscreen";
 import type { Item } from "../utils/types";
 
 const tierId = (index: number) => `tier-${index}`;
@@ -62,7 +63,8 @@ function Tile({
       title={item.name}
       {...(editable && !overlay ? { ...drag.listeners, ...drag.attributes } : {})}
     >
-      {item.imageUrl && <img src={item.imageUrl} alt="" draggable={false} />}
+      {/* The description comes from the item; the name is printed on the tile and read as text */}
+      {item.imageUrl && <img src={item.imageUrl} alt={item.altText ?? ""} draggable={false} />}
       <span className="item-name">{item.name}</span>
     </div>
   );
@@ -92,10 +94,13 @@ interface TierBoardProps {
   board: Board;
   // Read-only boards (other people's rankings, the community ranking) leave these out
   onChange?: (board: Board) => void;
+  // Shown as a heading while the board is full screen, since the page's own heading is out of view
+  title?: string;
 }
 
-function TierBoard({ items, board, onChange }: TierBoardProps) {
+function TierBoard({ items, board, onChange, title }: TierBoardProps) {
   const editable = Boolean(onChange);
+  const { ref: shellRef, active: isFullscreen, covering, toggle: toggleFullscreen } = useFullscreen<HTMLDivElement>();
   const [activeId, setActiveId] = useState<string | null>(null);
 
   const byId = useMemo(() => new Map(items.map((item) => [item._id, item])), [items]);
@@ -217,9 +222,7 @@ function TierBoard({ items, board, onChange }: TierBoardProps) {
     </>
   );
 
-  if (!editable) return body;
-
-  return (
+  const content = editable ? (
     <DndContext
       sensors={sensors}
       collisionDetection={collisions}
@@ -230,6 +233,29 @@ function TierBoard({ items, board, onChange }: TierBoardProps) {
       {body}
       <DragOverlay>{activeItem ? <Tile item={activeItem} container={POOL} editable={false} overlay /> : null}</DragOverlay>
     </DndContext>
+  ) : (
+    body
+  );
+
+  const classes = ["board-shell", isFullscreen ? "is-fullscreen" : "", covering ? "is-covering" : ""]
+    .filter(Boolean)
+    .join(" ");
+
+  return (
+    <div
+      ref={shellRef}
+      className={classes}
+      {...(covering ? { role: "dialog", "aria-modal": true, "aria-label": `${title ?? "Tier list"}, full screen` } : {})}
+    >
+      <div className="d-flex align-items-center justify-content-between gap-2 mb-2">
+        {isFullscreen && title ? <h2 className="h4 mb-0">{title}</h2> : <span />}
+        <button type="button" className="btn btn-sm btn-outline-secondary" onClick={toggleFullscreen}>
+          <i className={`bi ${isFullscreen ? "bi-fullscreen-exit" : "bi-arrows-fullscreen"} me-1`} aria-hidden="true"></i>
+          {isFullscreen ? "Exit full screen" : "Full screen"}
+        </button>
+      </div>
+      {content}
+    </div>
   );
 }
 

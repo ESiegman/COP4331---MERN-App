@@ -159,7 +159,8 @@ export async function updateItem(userId, templateId, itemId, changes) {
   const item = await Item.findOne({ _id: itemId, templateId: template._id });
   if (!item) throw notFound('Item');
 
-  item.set(changes);
+  // Taking the picture away takes its description too
+  item.set(changes.imageUrl === null ? { ...changes, altText: null } : changes);
   await item.save();
   return item;
 }
