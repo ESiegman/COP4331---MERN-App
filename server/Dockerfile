@@ -12,6 +12,9 @@ FROM base AS prod
 ENV NODE_ENV=production
 RUN npm ci --omit=dev && npm cache clean --force
 COPY src ./src
+# Uploaded images. The volume mounted here starts out owned by node, like this folder.
+RUN mkdir -p /data/uploads && chown node:node /data/uploads
+ENV UPLOAD_DIR=/data/uploads
 USER node
 EXPOSE 5001
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s \

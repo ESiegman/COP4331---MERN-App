@@ -31,6 +31,9 @@ try {
           email: { bsonType: 'string' },
           passwordHash: { bsonType: ['string', 'null'] }, // null for OAuth-only users
           emailVerified: { bsonType: 'bool' },
+          role: { enum: ['user', 'moderator', 'admin'] }, // missing counts as user
+          bannedAt: { bsonType: 'date' },
+          banReason: { bsonType: 'string' },
           displayName: { bsonType: 'string' },
           bio: { bsonType: 'string' },
           avatarUrl: { bsonType: 'string' },
@@ -66,7 +69,8 @@ try {
       },
       indexes: [
         { key: { provider: 1, providerUserId: 1 }, unique: true },
-        { key: { userId: 1 } },
+        // one Google and one Discord account per user
+        { key: { userId: 1, provider: 1 }, unique: true },
       ],
     },
 
@@ -197,17 +201,43 @@ try {
     notifications: {
       schema: {
         bsonType: 'object',
-        required: ['recipientId', 'actorId', 'type', 'rankingId', 'read'],
+        required: ['recipientId', 'actorId', 'type', 'read'],
         properties: {
           recipientId: oid,
           actorId: oid,
-          type: { enum: ['new_ranking', 'new_comment', 'new_like'] },
-          rankingId: oid,
+          type: { enum: ['new_ranking', 'new_comment', 'new_like', 'content_removed'] },
+          rankingId: oid, // every type has one except content_removed of a template or ranking
+          removed: {
+            bsonType: 'object',
+            required: ['kind', 'title'],
+            properties: {
+              kind: { enum: ['template', 'ranking', 'comment'] },
+              title: { bsonType: 'string' },
+              reason: { bsonType: 'string' },
+            },
+          },
           read: { bsonType: 'bool' },
           createdAt: { bsonType: 'date' },
         },
       },
       indexes: [{ key: { recipientId: 1, read: 1, createdAt: -1 } }],
+    },
+
+    moderationlogs: {
+      schema: {
+        bsonType: 'object',
+        required: ['action', 'targetUserId', 'summary', 'createdAt'],
+        properties: {
+          actorId: oid, // unset when a role was given with the setRole command
+          action: { enum: ['delete_template', 'delete_ranking', 'delete_comment', 'ban', 'unban', 'set_role'] },
+          targetUserId: oid,
+          contentId: oid,
+          summary: { bsonType: 'string' },
+          reason: { bsonType: 'string' },
+          createdAt: { bsonType: 'date' },
+        },
+      },
+      indexes: [{ key: { createdAt: -1, _id: -1 } }],
     },
   };
 
@@ -221,6 +251,10 @@ try {
   if (existing.has('users')) {
     await db.collection('users').deleteMany({ username: { $exists: false } });
     if (await db.collection('users').indexExists('login_1')) await db.collection('users').dropIndex('login_1');
+  }
+  // replaced by the unique userId + provider index, which also serves lookups by userId
+  if (existing.has('oauthaccounts') && (await db.collection('oauthaccounts').indexExists('userId_1'))) {
+    await db.collection('oauthaccounts').dropIndex('userId_1');
   }
 
   for (const [name, { schema, indexes }] of Object.entries(collections)) {

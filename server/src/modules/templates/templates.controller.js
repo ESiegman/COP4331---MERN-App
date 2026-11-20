@@ -18,7 +18,7 @@ export async function updateTemplate(req, res) {
 }
 
 export async function deleteTemplate(req, res) {
-  await templatesService.deleteTemplate(req.userId, req.valid.params.templateId);
+  await templatesService.deleteTemplate(req.userId, req.valid.params.templateId, { role: req.userRole, reason: req.valid.body.reason });
   res.status(204).end();
 }
 

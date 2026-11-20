@@ -44,6 +44,14 @@ services:
       EMAIL_FROM: ${EMAIL_FROM:-}
       EXPO_ACCESS_TOKEN: ${EXPO_ACCESS_TOKEN:-}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
+      DISCORD_CLIENT_ID: ${DISCORD_CLIENT_ID:-}
+      DISCORD_CLIENT_SECRET: ${DISCORD_CLIENT_SECRET:-}
+      OAUTH_REDIRECT_URIS: ${OAUTH_REDIRECT_URIS:-}
+    # Uploaded images
+    volumes:
+      - uploads:/data/uploads
     depends_on:
       db-setup:
         condition: service_completed_successfully
@@ -68,3 +76,4 @@ volumes:
   mongo-config:
   caddy-data:
   caddy-config:
+  uploads:

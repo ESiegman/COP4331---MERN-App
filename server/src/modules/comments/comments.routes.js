@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { optionalAuth, requireAuth } from '../../middleware/auth.js';
+import { reasonBody } from '../../lib/schemas.js';
 import { validate } from '../../middleware/validate.js';
 import * as controller from './comments.controller.js';
 import * as schemas from './comments.schemas.js';
@@ -30,4 +31,9 @@ commentsRouter.patch(
   validate({ params: schemas.commentParams, body: schemas.body }),
   controller.editComment,
 );
-commentsRouter.delete('/:commentId', requireAuth, validate({ params: schemas.commentParams }), controller.deleteComment);
+commentsRouter.delete(
+  '/:commentId',
+  requireAuth,
+  validate({ params: schemas.commentParams, body: reasonBody }),
+  controller.deleteComment,
+);

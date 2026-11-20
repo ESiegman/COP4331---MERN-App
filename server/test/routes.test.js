@@ -1,8 +1,13 @@
 import assert from 'node:assert/strict';
-import { test } from 'node:test';
+import { mock, test } from 'node:test';
 import request from 'supertest';
 import { createApp } from '../src/app.js';
 import { signToken } from '../src/lib/jwt.js';
+import { accounts } from '../src/middleware/auth.js';
+
+// Signed-in requests read the account from the database (middleware/auth.js). These tests have
+// none, so every token belongs to an ordinary account.
+mock.method(accounts, 'find', async () => ({ role: 'user' }));
 
 // Every route in the API plan, with a valid request for each. No database needed.
 
@@ -21,14 +26,16 @@ const DONE = 'done'; // written, and covered by an integration test
 
 // [method, path, body, needs a token?, state]
 const ROUTES = [
-  ['post', '/auth/oauth/google', oauth, GUEST, TODO],
+  ['get', '/auth/oauth/providers', undefined, GUEST, DONE],
+  ['post', '/auth/oauth/google', oauth, GUEST, DONE],
 
   ['get', '/users/me', undefined, TOKEN, DONE],
   ['patch', '/users/me', { bio: 'hi' }, TOKEN, DONE],
+  ['delete', '/users/me', { password: 'hunter22' }, TOKEN, DONE],
   ['post', '/users/me/push-tokens', pushToken, TOKEN, DONE],
   ['delete', '/users/me/push-tokens', pushToken, TOKEN, DONE],
-  ['post', '/users/me/oauth/discord', oauth, TOKEN, TODO],
-  ['delete', '/users/me/oauth/discord', undefined, TOKEN, TODO],
+  ['post', '/users/me/oauth/discord', oauth, TOKEN, DONE],
+  ['delete', '/users/me/oauth/discord', undefined, TOKEN, DONE],
   ['get', '/users/ada', undefined, GUEST, DONE],
   ['get', '/users/ada/templates', undefined, GUEST, DONE],
   ['get', '/users/ada/rankings', undefined, GUEST, DONE],
@@ -62,7 +69,14 @@ const ROUTES = [
   ['patch', `/notifications/${ID}`, { read: true }, TOKEN, DONE],
   ['post', '/notifications/read-all', undefined, TOKEN, DONE],
 
-  ['post', '/uploads/sign', { kind: 'item', contentType: 'image/png' }, TOKEN, TODO],
+  ['post', '/uploads/sign', { kind: 'item', contentType: 'image/png' }, TOKEN, DONE],
+  ['put', '/uploads/not-a-ticket', undefined, GUEST, DONE],
+
+  ['get', '/admin/users?status=banned', undefined, TOKEN, DONE],
+  ['post', '/admin/users/ada/ban', { reason: 'Spam' }, TOKEN, DONE],
+  ['delete', '/admin/users/ada/ban', undefined, TOKEN, DONE],
+  ['put', '/admin/users/ada/role', { role: 'moderator' }, TOKEN, DONE],
+  ['get', '/admin/log', undefined, TOKEN, DONE],
 ];
 
 const send = (method, path, body, headers = {}) => {
@@ -86,4 +100,37 @@ test('routes whose service is not written yet answer 501', async () => {
     assert.equal(res.status, 501, `${method.toUpperCase()} ${path} -> ${res.status} ${JSON.stringify(res.body)}`);
     assert.equal(res.body.code, 'NOT_IMPLEMENTED');
   }
+});
+
+test('admin routes: ordinary accounts are refused, and moderators where admins are needed', async (t) => {
+  const asRole = (role) => t.mock.method(accounts, 'find', async () => ({ role }));
+  const admin = ROUTES.filter(([, path]) => path.startsWith('/admin'));
+
+  asRole('user');
+  for (const [method, path, body] of admin) {
+    const res = await send(method, path, body, auth);
+    assert.equal(res.status, 403, `${method.toUpperCase()} ${path}`);
+    assert.equal(res.body.error, path.includes('/role') || path.includes('/log') ? 'Only admins can do that' : 'Only moderators can do that');
+  }
+
+  asRole('moderator');
+  for (const path of ['/admin/users/ada/role', '/admin/log']) {
+    const method = path.endsWith('role') ? 'put' : 'get';
+    const res = await send(method, path, { role: 'moderator' }, auth);
+    assert.equal(res.status, 403, path);
+    assert.equal(res.body.error, 'Only admins can do that');
+  }
+});
+
+test('a banned account is refused everywhere a token is needed, and browses as a guest elsewhere', async (t) => {
+  t.mock.method(accounts, 'find', async () => ({ role: 'user', bannedAt: new Date(), banReason: 'Spam' }));
+  const res = await send('get', '/users/me', undefined, auth);
+  assert.equal(res.status, 403);
+  assert.equal(res.body.code, 'ACCOUNT_BANNED');
+  assert.equal(res.body.error, 'This account has been banned: Spam');
+
+  t.mock.method(accounts, 'find', async () => null);
+  const gone = await send('get', '/users/me', undefined, auth);
+  assert.equal(gone.status, 401);
+  assert.equal(gone.body.error, 'This account no longer exists');
 });

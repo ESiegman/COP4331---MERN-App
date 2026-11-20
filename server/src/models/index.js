@@ -10,3 +10,4 @@ export { Ranking } from './ranking.model.js';
 export { Comment } from './comment.model.js';
 export { Like } from './like.model.js';
 export { Notification } from './notification.model.js';
+export { ModerationLog } from './moderationLog.model.js';

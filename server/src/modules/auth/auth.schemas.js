@@ -3,7 +3,7 @@ import { text } from '../../lib/schemas.js';
 import { OAUTH_PROVIDERS } from '../../models/enums.js';
 
 // Names that would mislead people
-const RESERVED_USERNAMES = new Set(['admin', 'api', 'support', 'system']);
+export const RESERVED_USERNAMES = new Set(['admin', 'api', 'support', 'system']);
 
 // Lowercased before checking, so 'Ada' and 'ada' are the same username.
 // The 3-character minimum also keeps "me" free for the /users/me routes.

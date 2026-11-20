@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import Avatar from "../components/Avatar";
+import AltTextField from "../components/AltTextField";
+import ImageField from "../components/ImageField";
 import LoadMore from "../components/LoadMore";
 import Notice from "../components/Notice";
 import RankingCard from "../components/RankingCard";
@@ -9,6 +11,7 @@ import TierBoard from "../components/TierBoard";
 import { boardFrom } from "../utils/board";
 import { apiFetch } from "../utils/api";
 import { useAuth } from "../utils/useAuth";
+import { isModerator } from "../utils/roles";
 import { useConfirm } from "../utils/useConfirm";
 import { formatDate, nameOf } from "../utils/format";
 import type { Item, Ranking, Template, Tier, TemplateDetail, Visibility } from "../utils/types";
@@ -17,7 +20,7 @@ import { usePagedList } from "../utils/usePagedList";
 function TemplatePage() {
   const { templateId } = useParams();
   const { user } = useAuth();
-  const { confirm, dialog } = useConfirm();
+  const { confirm, confirmWithReason, dialog } = useConfirm();
   const navigate = useNavigate();
 
   const [detail, setDetail] = useState<TemplateDetail | null>(null);
@@ -29,18 +32,22 @@ function TemplatePage() {
   // Owner tools
   const [newName, setNewName] = useState("");
   const [newImage, setNewImage] = useState("");
+  const [newAlt, setNewAlt] = useState("");
 
   // Editing the template's details, and renaming one item at a time
   const [editing, setEditing] = useState(false);
-  const [form, setForm] = useState<{ title: string; description: string; category: string; visibility: Visibility }>({
+  const [form, setForm] = useState<{ title: string; description: string; category: string; coverImageUrl: string; tierLabels: string; visibility: Visibility }>({
     title: "",
     description: "",
     category: "",
+    coverImageUrl: "",
+    tierLabels: "",
     visibility: "public",
   });
   const [editingItemId, setEditingItemId] = useState<string | null>(null);
   const [itemName, setItemName] = useState("");
   const [itemImage, setItemImage] = useState("");
+  const [itemAlt, setItemAlt] = useState("");
 
   const rankings = usePagedList<Ranking>(templateId ? `api/templates/${templateId}/rankings` : null, 6);
 
@@ -87,13 +94,14 @@ function TemplatePage() {
     setError("");
     const res = await apiFetch<Item>(`api/templates/${templateId}/items`, {
       method: "POST",
-      body: { name: newName, imageUrl: newImage.trim() || null },
+      body: { name: newName, imageUrl: newImage.trim() || null, altText: newImage.trim() ? newAlt.trim() : null },
     });
     setBusy(false);
     if (res.ok) {
       setDetail((d) => (d ? { ...d, items: [...d.items, res.data] } : d));
       setNewName("");
       setNewImage("");
+      setNewAlt("");
     } else {
       setError(res.error ?? "Could not add the item");
     }
@@ -102,12 +110,17 @@ function TemplatePage() {
   function startEditing() {
     if (!detail) return;
     const t = detail.template;
-    setForm({ title: t.title, description: t.description ?? "", category: t.category ?? "", visibility: t.visibility });
+    setForm({ title: t.title, description: t.description ?? "", category: t.category ?? "", coverImageUrl: t.coverImageUrl ?? "", tierLabels: t.tierLabels.join(", "), visibility: t.visibility });
     setEditing(true);
   }
 
   async function saveTemplate(e: FormEvent) {
     e.preventDefault();
+    const labels = form.tierLabels.split(",").map((label) => label.trim()).filter(Boolean);
+    if (labels.length === 0 || labels.length > 12 || labels.some((label) => label.length > 20)) {
+      setError("Give between 1 and 12 tier names of up to 20 characters, separated by commas.");
+      return;
+    }
     setBusy(true);
     setError("");
     const res = await apiFetch<Template>(`api/templates/${templateId}`, {
@@ -116,6 +129,8 @@ function TemplatePage() {
         title: form.title.trim(),
         description: form.description.trim(),
         category: form.category.trim(),
+        coverImageUrl: form.coverImageUrl.trim() || null,
+        tierLabels: labels,
         visibility: form.visibility,
       },
     });
@@ -133,6 +148,7 @@ function TemplatePage() {
     setEditingItemId(item._id);
     setItemName(item.name);
     setItemImage(item.imageUrl ?? "");
+    setItemAlt(item.altText ?? "");
   }
 
   async function saveItem(e: FormEvent) {
@@ -142,7 +158,7 @@ function TemplatePage() {
     setError("");
     const res = await apiFetch<Item>(`api/templates/${templateId}/items/${editingItemId}`, {
       method: "PATCH",
-      body: { name: itemName.trim(), imageUrl: itemImage.trim() || null },
+      body: { name: itemName.trim(), imageUrl: itemImage.trim() || null, altText: itemImage.trim() ? itemAlt.trim() : null },
     });
     setBusy(false);
     if (res.ok) {
@@ -160,9 +176,20 @@ function TemplatePage() {
     else setError(res.error ?? "Could not remove the item");
   }
 
-  async function deleteTemplate() {
-    if (!(await confirm({ title: "Delete template?", message: "This deletes the template and every ranking of it. This can't be undone.", confirmLabel: "Delete" }))) return;
-    const res = await apiFetch<null>(`api/templates/${templateId}`, { method: "DELETE" });
+  async function deleteTemplate(asModerator: boolean) {
+    let reason = "";
+    if (asModerator) {
+      const answer = await confirmWithReason({
+        title: "Remove this template?",
+        message: "This removes the template and every ranking of it. Its owner will be notified.",
+        confirmLabel: "Remove",
+      });
+      if (answer === null) return;
+      reason = answer;
+    } else if (!(await confirm({ title: "Delete template?", message: "This deletes the template and every ranking of it. This can't be undone.", confirmLabel: "Delete" }))) {
+      return;
+    }
+    const res = await apiFetch<null>(`api/templates/${templateId}`, { method: "DELETE", body: reason ? { reason } : undefined });
     if (res.ok) navigate("/");
     else setError(res.error ?? "Could not delete the template");
   }
@@ -185,6 +212,7 @@ function TemplatePage() {
 
   const { template, owner } = detail;
   const isOwner = user?._id === template.ownerId;
+  const canModerate = isModerator(user) && !isOwner;
 
   return (
     <main className="page">
@@ -207,7 +235,15 @@ function TemplatePage() {
               <i className="bi bi-pencil me-1" aria-hidden="true"></i>Edit
             </button>
           )}
-          <ShareButton url={detail.shareUrl} />
+          {canModerate && (
+            <button type="button" className="btn btn-sm btn-outline-danger" onClick={() => void deleteTemplate(true)}>
+              <i className="bi bi-shield-x me-1" aria-hidden="true"></i>Remove
+            </button>
+          )}
+          <ShareButton
+            url={detail.shareUrl}
+            image={communityBoard && community && community.rankingCount > 0 ? { title: `${template.title}: community ranking`, board: { ...communityBoard, pool: [] }, items } : undefined}
+          />
           <button type="button" className="btn btn-primary" onClick={startRanking} disabled={busy || items.length === 0}>
             Rank this
           </button>
@@ -240,6 +276,14 @@ function TemplatePage() {
               </select>
             </div>
           </div>
+          <div className="mb-3">
+            <ImageField label="Cover picture" kind="cover" value={form.coverImageUrl} onChange={(url) => setForm({ ...form, coverImageUrl: url })} disabled={busy} help="Shown on the template's card in browse." />
+          </div>
+          <div className="mb-3">
+            <label htmlFor="editTiers" className="form-label fw-semibold">Tier names, best to worst</label>
+            <input id="editTiers" className="form-control" value={form.tierLabels} onChange={(e) => setForm({ ...form, tierLabels: e.target.value })} />
+            <div className="form-text">Separate with commas. This only changes rankings started after you save: existing rankings keep their own tiers.</div>
+          </div>
           <div className="d-flex gap-2">
             <button type="submit" className="btn btn-primary" disabled={busy || !form.title.trim()}>Save changes</button>
             <button type="button" className="btn btn-outline-secondary" onClick={() => setEditing(false)} disabled={busy}>Cancel</button>
@@ -254,7 +298,7 @@ function TemplatePage() {
         {communityBoard && community && community.rankingCount > 0 ? (
           <>
             <p className="muted small">Averaged from {community.rankingCount} published {community.rankingCount === 1 ? "ranking" : "rankings"}.</p>
-            <TierBoard items={items} board={{ ...communityBoard, pool: [] }} />
+            <TierBoard title="Community ranking" items={items} board={{ ...communityBoard, pool: [] }} />
           </>
         ) : (
           <p className="muted mb-0">Nobody has published a ranking yet. Yours could be the first.</p>
@@ -299,36 +343,36 @@ function TemplatePage() {
           <>
             <hr />
             {editingItemId && (
-              <form onSubmit={saveItem} className="row g-2 align-items-end mb-3" aria-label="Edit item">
-                <div className="col-12 col-md-4">
+              <form onSubmit={saveItem} className="row g-3 align-items-start mb-4" aria-label="Edit item">
+                <div className="col-12 col-md-5">
                   <label htmlFor="editItemName" className="form-label fw-semibold">Item name</label>
                   <input id="editItemName" className="form-control" maxLength={60} value={itemName} onChange={(e) => setItemName(e.target.value)} required />
                 </div>
-                <div className="col-12 col-md">
-                  <label htmlFor="editItemImage" className="form-label fw-semibold">Image link (optional, https)</label>
-                  <input id="editItemImage" type="url" className="form-control" value={itemImage} onChange={(e) => setItemImage(e.target.value)} />
+                <div className="col-12 col-md-7">
+                  <ImageField label="Picture (optional)" kind="item" value={itemImage} onChange={setItemImage} disabled={busy} help="Leave empty for a text-only item. Otherwise paste a link or upload a JPEG, PNG or WebP picture up to 5 MB." />
+                  <AltTextField value={itemAlt} onChange={setItemAlt} hasPicture={Boolean(itemImage.trim())} disabled={busy} />
                 </div>
-                <div className="col-12 col-md-auto d-flex gap-2">
-                  <button type="submit" className="btn btn-primary" disabled={busy || !itemName.trim()}>Save item</button>
+                <div className="col-12 d-flex gap-2">
+                  <button type="submit" className="btn btn-primary" disabled={busy || !itemName.trim() || (Boolean(itemImage.trim()) && !itemAlt.trim())}>Save item</button>
                   <button type="button" className="btn btn-outline-secondary" onClick={() => setEditingItemId(null)} disabled={busy}>Cancel</button>
                 </div>
               </form>
             )}
-            <form onSubmit={addItem} className="row g-2 align-items-end">
-              <div className="col-12 col-md-4">
+            <form onSubmit={addItem} className="row g-3 align-items-start" aria-label="Add item">
+              <div className="col-12 col-md-5">
                 <label htmlFor="itemName" className="form-label fw-semibold">New item</label>
                 <input id="itemName" className="form-control" maxLength={60} value={newName} onChange={(e) => setNewName(e.target.value)} required />
               </div>
-              <div className="col-12 col-md">
-                <label htmlFor="itemImage" className="form-label fw-semibold">Image link (optional, https)</label>
-                <input id="itemImage" type="url" className="form-control" value={newImage} onChange={(e) => setNewImage(e.target.value)} />
+              <div className="col-12 col-md-7">
+                <ImageField label="Picture (optional)" kind="item" value={newImage} onChange={setNewImage} disabled={busy} help="Leave empty for a text-only item. Otherwise paste a link or upload a JPEG, PNG or WebP picture up to 5 MB." />
+                <AltTextField value={newAlt} onChange={setNewAlt} hasPicture={Boolean(newImage.trim())} disabled={busy} />
               </div>
-              <div className="col-12 col-md-auto">
-                <button type="submit" className="btn btn-primary w-100" disabled={busy}>Add item</button>
+              <div className="col-12">
+                <button type="submit" className="btn btn-primary" disabled={busy || (Boolean(newImage.trim()) && !newAlt.trim())}>Add item</button>
               </div>
             </form>
             <div className="mt-4">
-              <button type="button" className="btn btn-sm btn-outline-danger" onClick={deleteTemplate}>
+              <button type="button" className="btn btn-sm btn-outline-danger" onClick={() => void deleteTemplate(false)}>
                 Delete template
               </button>
             </div>

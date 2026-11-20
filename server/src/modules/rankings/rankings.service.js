@@ -1,10 +1,12 @@
 import { KEEP_UPDATED_AT, withTransaction } from '../../lib/db.js';
 import { badRequest, forbidden, notFound } from '../../lib/errors.js';
 import { findPage } from '../../lib/pagination.js';
+import { isModerator } from '../../lib/roles.js';
 import { effectiveVisibility, isOwner, shareUrl } from '../../lib/sharedContent.js';
 import {
   Comment, DEFAULT_TIER_COLORS, Item, Like, Notification, Ranking, Template,
 } from '../../models/index.js';
+import { removedByModerator } from '../admin/admin.service.js';
 import { notify } from '../notifications/notifications.service.js';
 import { findViewableTemplate, recountRankings } from '../templates/templates.service.js';
 import { findPublicProfiles } from '../users/users.service.js';
@@ -216,17 +218,25 @@ export async function saveRanking(userId, rankingId, { title, tiers, visibility,
 }
 
 // DELETE /rankings/:rankingId  (Delete own ranking)
-export async function deleteRanking(userId, rankingId) {
-  const ranking = await findOwnRanking(userId, rankingId);
+// A moderator can delete anyone's ranking they can see; that is logged and the owner is told.
+export async function deleteRanking(userId, rankingId, { role, reason } = {}) {
+  const ranking = await findViewableRanking(userId, rankingId);
+  const byModerator = !isOwner(ranking, userId);
+  if (byModerator && !isModerator(role)) throw forbidden('Only the owner can change this ranking');
 
-  await withTransaction(async () => {
+  const sendPush = await withTransaction(async () => {
     await Comment.deleteMany({ rankingId: ranking._id });
     await Like.deleteMany({ rankingId: ranking._id });
     await Notification.deleteMany({ rankingId: ranking._id });
     await ranking.deleteOne();
 
     if (ranking.publishedAt) await recountRankings(ranking.templateId);
+
+    if (!byModerator) return null;
+    const title = ranking.title || (await Template.findById(ranking.templateId).select('title').lean())?.title || 'Untitled';
+    return removedByModerator(userId, ranking.ownerId, { kind: 'ranking', contentId: ranking._id, title, reason });
   });
+  await sendPush?.();
 }
 
 const likeCountOf = async (rankingId) => (await Ranking.findById(rankingId).select('likeCount').lean()).likeCount;

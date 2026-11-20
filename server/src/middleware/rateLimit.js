@@ -20,5 +20,8 @@ export const loginLimiter = limiter({ minutes: 15, limit: 100 });
 // used to flood someone's inbox
 export const emailLimiter = limiter({ minutes: 60, limit: 50 });
 
+// Upload tickets, so one client can't fill the server's disk
+export const uploadLimiter = limiter({ minutes: 60, limit: 60 });
+
 // AI item suggestions cost money per call
 export const aiLimiter = limiter({ minutes: 60, limit: 20 });

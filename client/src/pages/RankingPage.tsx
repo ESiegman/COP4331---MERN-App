@@ -4,11 +4,13 @@ import Avatar from "../components/Avatar";
 import CommentSection from "../components/CommentSection";
 import LikeButton from "../components/LikeButton";
 import Notice from "../components/Notice";
+import DownloadButton from "../components/DownloadButton";
 import ShareButton from "../components/ShareButton";
 import TierBoard from "../components/TierBoard";
 import { boardFrom, type Board } from "../utils/board";
 import { apiFetch } from "../utils/api";
 import { useAuth } from "../utils/useAuth";
+import { isModerator } from "../utils/roles";
 import { useConfirm } from "../utils/useConfirm";
 import { nameOf, timeAgo } from "../utils/format";
 import type { RankingDetail, Visibility } from "../utils/types";
@@ -21,7 +23,7 @@ type SaveState = "idle" | "saving" | "saved" | "error";
 function RankingPage() {
   const { rankingId } = useParams();
   const { user } = useAuth();
-  const { confirm, dialog } = useConfirm();
+  const { confirm, confirmWithReason, dialog } = useConfirm();
   const navigate = useNavigate();
 
   const [detail, setDetail] = useState<RankingDetail | null>(null);
@@ -132,13 +134,20 @@ function RankingPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [rankingId]);
 
-  async function deleteRanking() {
-    if (!(await confirm({ title: "Delete ranking?", message: "This can't be undone.", confirmLabel: "Delete" }))) return;
+  async function deleteRanking(asModerator: boolean) {
+    let reason = "";
+    if (asModerator) {
+      const answer = await confirmWithReason({ title: "Remove this ranking?", message: "Its owner will be notified.", confirmLabel: "Remove" });
+      if (answer === null) return;
+      reason = answer;
+    } else if (!(await confirm({ title: "Delete ranking?", message: "This can't be undone.", confirmLabel: "Delete" }))) {
+      return;
+    }
     if (timer.current !== null) {
       window.clearTimeout(timer.current);
       timer.current = null;
     }
-    const res = await apiFetch<null>(`api/rankings/${rankingId}`, { method: "DELETE" });
+    const res = await apiFetch<null>(`api/rankings/${rankingId}`, { method: "DELETE", body: reason ? { reason } : undefined });
     if (res.ok) navigate(`/templates/${detail?.template._id ?? ""}`);
     else setError(res.error ?? "Could not delete the ranking");
   }
@@ -169,6 +178,7 @@ function RankingPage() {
 
   const { ranking, template, owner } = detail;
   const isOwner = user?._id === ranking.ownerId;
+  const canModerate = isModerator(user) && !isOwner;
   const isDraft = publishedAt === null;
   const heading = title || template.title;
 
@@ -196,7 +206,14 @@ function RankingPage() {
         </div>
         <div className="d-flex flex-wrap gap-2 align-items-center">
           {!isDraft && <LikeButton rankingId={ranking._id} initialLiked={detail.likedByMe} initialCount={ranking.likeCount} />}
-          {!isDraft && <ShareButton url={shareUrl} />}
+          {!isDraft && <ShareButton url={shareUrl} image={{ title: heading, board, items }} />}
+          {/* Drafts too, so an owner can save their work before publishing */}
+          <DownloadButton image={{ title: heading, board, items }} />
+          {canModerate && (
+            <button type="button" className="btn btn-sm btn-outline-danger" onClick={() => void deleteRanking(true)}>
+              <i className="bi bi-shield-x me-1" aria-hidden="true"></i>Remove
+            </button>
+          )}
         </div>
       </div>
 
@@ -234,7 +251,7 @@ function RankingPage() {
                   Publish
                 </button>
               )}
-              <button type="button" className="btn btn-outline-danger" onClick={deleteRanking} aria-label="Delete ranking">
+              <button type="button" className="btn btn-outline-danger" onClick={() => void deleteRanking(false)} aria-label="Delete ranking">
                 <i className="bi bi-trash3" aria-hidden="true"></i>
               </button>
             </div>
@@ -248,7 +265,7 @@ function RankingPage() {
         </div>
       )}
 
-      <TierBoard items={items} board={board} onChange={isOwner ? (next) => edit({ board: next }) : undefined} />
+      <TierBoard title={heading} items={items} board={board} onChange={isOwner ? (next) => edit({ board: next }) : undefined} />
 
       {isOwner && (
         <div className="mt-3">

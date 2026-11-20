@@ -7,18 +7,13 @@ Express API for the tier list app. Every route is under `/api`, and all request 
 
 ## Status
 
-39 of the 43 routes work. The other 4 are wired up, validated and guarded, but answer `501 Not Implemented` until someone picks a provider and writes the integration:
+Every route works. Email, push, AI suggestions and Google and Discord login each need their settings in place:
 
-| Waiting on | Routes | Where the work goes |
-| --- | --- | --- |
-| Google and Discord apps | `POST /auth/oauth/:provider`, `POST` and `DELETE /users/me/oauth/:provider` | `integrations/oauth.js`, then three functions in `modules/auth/auth.service.js` |
-| Image storage | `POST /uploads/sign` | `integrations/storage.js` |
-
-Email, push and AI suggestions work, with one setting each:
-
-- **Email** goes out through any SMTP server once `SMTP_URL` is set (see Configuration). Until it is set in `/opt/mern/.env`, production drops every email, so nobody new can verify an account there. In development without it, the email, link included, is written to the API log.
+- **Email** goes out through any SMTP server once `SMTP_URL` is set (see Configuration). Production has it set in `/opt/mern/.env` and sends through Resend from `mail.esiegman.dev`. Without it, production would drop every email, so nobody new could verify an account. In development without it, the email, link included, is written to the API log.
 - **Push notifications** go through Expo's push service as soon as the app registers a phone with `POST /api/users/me/push-tokens`. No account or key is needed unless "enhanced push security" is turned on in Expo's dashboard, which needs `EXPO_ACCESS_TOKEN`. Phones Expo reports as uninstalled are dropped from the account.
 - **AI item suggestions** use Claude through Anthropic's API once `ANTHROPIC_API_KEY` is set. Until then `POST /api/templates/suggest-items` answers `501`, which the web app shows as "not available yet".
+- **Image uploads** are saved on the server's own disk, in `UPLOAD_DIR` (the `uploads` Docker volume on the droplet), and served by the API. Nothing to set up. The droplet has no backups yet, so neither the images nor the database survive losing it.
+- **Google and Discord login** need each provider's client id and secret (`GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET`, `DISCORD_CLIENT_ID` and `DISCORD_CLIENT_SECRET`). A provider without them answers `501` and is left out of `GET /api/auth/oauth/providers`. See [Google and Discord](#google-and-discord).
 
 ## Endpoints
 
@@ -34,7 +29,8 @@ Email, push and AI suggestions work, with one setting each:
 | POST | `/api/auth/login` | none | Log in with email and password |
 | POST | `/api/auth/forgot-password` | none | Email a password reset link |
 | POST | `/api/auth/reset-password` | none | Redeem the reset link, set a new password |
-| POST | `/api/auth/oauth/:provider` | none | Log in with Google or Discord (501) |
+| GET | `/api/auth/oauth/providers` | none | Which of Google and Discord login are set up, with what a client needs to start them |
+| POST | `/api/auth/oauth/:provider` | none | Log in with Google or Discord, creating the account the first time |
 
 ### Users
 
@@ -42,10 +38,11 @@ Email, push and AI suggestions work, with one setting each:
 | --- | --- | --- | --- |
 | GET | `/api/users/me` | token | Get your account |
 | PATCH | `/api/users/me` | token | Change your profile and notification switches |
+| DELETE | `/api/users/me` | token | Delete your account and everything you made |
 | POST | `/api/users/me/push-tokens` | token | Register this phone for push notifications |
 | DELETE | `/api/users/me/push-tokens` | token | Stop push notifications on this phone |
-| POST | `/api/users/me/oauth/:provider` | token | Link a Google or Discord account (501) |
-| DELETE | `/api/users/me/oauth/:provider` | token | Unlink it (501) |
+| POST | `/api/users/me/oauth/:provider` | token | Link a Google or Discord account |
+| DELETE | `/api/users/me/oauth/:provider` | token | Unlink it |
 | GET | `/api/users/:username` | none | Someone's public profile |
 | GET | `/api/users/:username/templates` | optional | Their templates |
 | GET | `/api/users/:username/rankings` | optional | Their rankings |
@@ -59,7 +56,7 @@ Email, push and AI suggestions work, with one setting each:
 | POST | `/api/templates/suggest-items` | token | Ask AI for items to rank |
 | GET | `/api/templates/:templateId` | optional | One template with its items |
 | PATCH | `/api/templates/:templateId` | token, owner | Change a template |
-| DELETE | `/api/templates/:templateId` | token, owner | Delete a template and everything on it |
+| DELETE | `/api/templates/:templateId` | token, owner or moderator | Delete a template and everything on it |
 | POST | `/api/templates/:templateId/items` | token, owner | Add an item |
 | PATCH | `/api/templates/:templateId/items/:itemId` | token, owner | Rename an item or change its image |
 | DELETE | `/api/templates/:templateId/items/:itemId` | token, owner | Remove an item |
@@ -74,7 +71,7 @@ Email, push and AI suggestions work, with one setting each:
 | GET | `/api/rankings` | none | Feed of public rankings |
 | GET | `/api/rankings/:rankingId` | optional | One ranking with everything needed to draw it |
 | PUT | `/api/rankings/:rankingId` | token, owner | Save the board, and optionally publish it |
-| DELETE | `/api/rankings/:rankingId` | token, owner | Delete a ranking |
+| DELETE | `/api/rankings/:rankingId` | token, owner or moderator | Delete a ranking |
 | PUT | `/api/rankings/:rankingId/like` | token | Like a ranking |
 | DELETE | `/api/rankings/:rankingId/like` | token | Take the like back |
 
@@ -85,7 +82,7 @@ Email, push and AI suggestions work, with one setting each:
 | GET | `/api/rankings/:rankingId/comments` | optional | Comments on a ranking, oldest first |
 | POST | `/api/rankings/:rankingId/comments` | token | Comment on a ranking |
 | PATCH | `/api/comments/:commentId` | token, author | Edit your comment |
-| DELETE | `/api/comments/:commentId` | token, author or ranking owner | Delete a comment |
+| DELETE | `/api/comments/:commentId` | token, author, ranking owner or moderator | Delete a comment |
 
 ### Notifications and the rest
 
@@ -94,8 +91,22 @@ Email, push and AI suggestions work, with one setting each:
 | GET | `/api/notifications` | token | Your notifications, newest first |
 | PATCH | `/api/notifications/:notificationId` | token | Mark one as read |
 | POST | `/api/notifications/read-all` | token | Mark all as read |
-| POST | `/api/uploads/sign` | token | Get a ticket for uploading an image (501) |
+| POST | `/api/uploads/sign` | token | Get a ticket for uploading one image |
+| PUT | `/api/uploads/:ticket` | ticket | Upload the image |
+| GET | `/api/uploads/files/...` | none | The uploaded images themselves |
 | GET | `/api/health` | none | Check the API is up |
+
+### Admin
+
+Moderators remove content with the normal `DELETE` routes above. These are the rest. See [Moderators and admins](#moderators-and-admins).
+
+| Method | Path | Auth | Description |
+| --- | --- | --- | --- |
+| GET | `/api/admin/users?status=staff` or `banned` | moderator | Moderators and admins, or banned accounts |
+| POST | `/api/admin/users/:username/ban` | moderator | Ban an account |
+| DELETE | `/api/admin/users/:username/ban` | moderator | Unban it |
+| PUT | `/api/admin/users/:username/role` | admin | Make someone a user, moderator or admin |
+| GET | `/api/admin/log` | admin | Every moderation action, newest first |
 
 ## Code layout
 
@@ -113,16 +124,18 @@ src/
     pagination.js             findPage and cursors for list endpoints
     schemas.js                Zod pieces shared by the modules
     sharedContent.js          canView, isOwner, shareUrl for templates and rankings
+    roles.js                  hasRole, isModerator, and the ACCOUNT_BANNED error
     logger.js                 pino logger and the request logger
   middleware/
-    auth.js                   requireAuth, optionalAuth
+    auth.js                   requireAuth, optionalAuth, requireRole
     validate.js               validate({ params, query, body }) with Zod
     rateLimit.js              limits on auth and AI routes
     errorHandler.js           404 for unknown routes, one place that turns errors into JSON
   models/                     one Mongoose model per collection, plus enums.js
   integrations/               email, push, storage, ai, oauth: the outside services
   modules/
-    auth/  users/  templates/  rankings/  comments/  notifications/  uploads/
+    auth/  users/  templates/  rankings/  comments/  notifications/  uploads/  admin/
+  scripts/setRole.js          gives an account a role from the server (the first admin)
 test/                         see Tests below
 ```
 
@@ -153,7 +166,10 @@ flowchart TD
     F -- no, or under --> G{requireAuth or optionalAuth}
     G -- token missing on a requireAuth route --> G1[401]
     G -- token invalid or expired --> G1
-    G -- ok --> H{validate: params, query, body match the Zod schemas?}
+    G -- account banned --> G2[403]
+    G -- ok --> RR{requireRole on admin routes}
+    RR -- role too low --> G2
+    RR -- ok, or not an admin route --> H{validate: params, query, body match the Zod schemas?}
     H -- no --> H1[400 with a list of the problems]
     H -- yes --> K[Controller]
     K --> L[Service]
@@ -165,7 +181,7 @@ flowchart TD
 Three things to know when reading or writing a route:
 
 - **Validated input lives on `req.valid`.** `validate()` puts the parsed params, query and body there: trimmed, coerced to the right types, defaults applied, unknown keys dropped. Controllers read `req.valid.body`, never `req.body`.
-- **`req.userId` is the caller.** `requireAuth` guarantees it is set. `optionalAuth` sets it to `null` for a guest.
+- **`req.userId` is the caller, and `req.userRole` their role.** `requireAuth` guarantees both are set, after reading the account from the database. `optionalAuth` sets them to `null` for a guest, and for a banned account.
 - **Nothing catches errors by hand.** Express 5 forwards anything thrown from an async handler to `errorHandler`, so services just `throw notFound('Template')`.
 
 ## Authentication
@@ -210,7 +226,75 @@ sequenceDiagram
 - Passwords are hashed with bcrypt (10 rounds). The hash is never loaded unless a query asks for it, and never sent in a response.
 - The links in emails carry a random one-time token. The database stores only its SHA-256 hash, and MongoDB deletes expired tokens on its own. A verification link lasts 24 hours, a reset link 1 hour, and asking for a new link cancels the old one.
 - Rate limits, per client address: login, password reset and Google/Discord login allow 100 requests per 15 minutes, enough for a classroom on one network. Routes that send an email (register, resend verification, forgot password) allow 50 per hour. Verifying an email has no limit, since its token can't be guessed.
-- Tokens are stateless: logging out is the client forgetting the token, and changing a password does not cancel tokens that were already issued.
+- Tokens are stateless: logging out is the client forgetting the token, and changing a password does not cancel tokens that were already issued. Every request that sends a token does read the account, though, so a ban or a deleted account stops its tokens at once (see Moderators and admins).
+
+### Google and Discord
+
+The web and Expo apps run the provider's sign-in page themselves, using the authorization code flow with PKCE, and hand the result to the API. Only the API has the client secrets, so only it can turn the code into who the person is.
+
+1. `GET /api/auth/oauth/providers` gives each set-up provider's `authorizeUrl`, `clientId` and `scope`.
+2. The client makes a random `state` and a random `codeVerifier`, keeps both, and sends the person to `authorizeUrl` with `response_type=code`, `client_id`, `redirect_uri`, `scope`, `state`, `code_challenge` (the base64url SHA-256 of the verifier) and `code_challenge_method=S256`.
+3. The provider sends them back to `redirect_uri` with `?code=...&state=...`. The client checks `state` matches what it kept.
+4. The client posts `{ code, codeVerifier, redirectUri }` to `/api/auth/oauth/:provider`, or to `/api/users/me/oauth/:provider` to link the provider to the account that is logged in.
+
+```mermaid
+sequenceDiagram
+    participant C as Client
+    participant P as Google or Discord
+    participant A as API
+    participant DB as MongoDB
+
+    C->>P: sign-in page with code_challenge and state
+    P-->>C: redirect_uri?code&state
+    C->>A: POST /api/auth/oauth/google { code, codeVerifier, redirectUri }
+    A->>P: code, verifier and client secret for an access token
+    A->>P: who is this? (id, email, whether the email is verified, name, picture)
+    A->>DB: oauthaccounts.findOne(provider, providerUserId)
+    alt linked already
+        A-->>C: 200 { token, user }
+    else the verified email belongs to a user
+        A->>DB: link the provider to that user
+        A-->>C: 200 { token, user }
+    else new person
+        A->>DB: insert user (no password, email verified) and the link, in one transaction
+        A-->>C: 200 { token, user }
+    end
+```
+
+- `redirectUri` has to be on the API's list, `OAUTH_REDIRECT_URIS`, which defaults to `APP_URL/oauth/callback`. The same address must also be registered with the provider (Google Cloud console, Discord Developer Portal). Both providers already have `https://mern.esiegman.dev/oauth/callback` and `http://localhost:5173/oauth/callback`.
+- An account is only matched or created by email when the provider says it checked the address. Otherwise the answer is `403` `OAUTH_EMAIL_UNVERIFIED`.
+- If someone registered that email with a password but never verified it, logging in with the provider takes the account over and removes that password, since nobody proved it belonged to the email's owner.
+- A new account's username comes from the person's name, with a number added if it is taken. They can change their display name later; the username stays.
+- Each user can link one Google and one Discord account, and each of those can belong to only one user. Unlinking is refused while it is the only way in (no password, nothing else linked). Such an account can still set a password through forgot password.
+
+## Moderators and admins
+
+Every account has a `role`: `user` (the default), `moderator` or `admin`. Each one can do everything the ones before it can.
+
+| | user | moderator | admin |
+| --- | --- | --- | --- |
+| Delete their own templates, rankings and comments | yes | yes | yes |
+| Delete anyone's template, ranking or comment they can see | | yes | yes |
+| Ban and unban users, see banned accounts and the staff list | | yes | yes |
+| Ban moderators | | | yes |
+| Change roles, read the moderation log | | | yes |
+
+- **Roles and bans are read from the database on every request**, not stored in the login token. A ban or a role change applies to the very next request, with no need to log in again.
+- **A ban** stops every way of logging in (`403` `ACCOUNT_BANNED`, with the reason) and every request that needs a token. The account's existing tokens stop working and its phones stop getting push notifications. A banned account can still browse as a guest. Its templates, rankings and comments stay up; moderators remove anything bad one at a time. Nobody can ban themselves or an admin, and only admins can ban moderators.
+- **Moderators can't see private content** any more than other people can. They act on what is public or unlisted.
+- **When a moderator removes someone's content**, the owner gets a `content_removed` notification saying what was removed and why, but not which moderator did it. It can't be switched off. A moderator deleting their own content is an ordinary delete.
+- **Everything is logged** in `moderationlogs`: who acted, whose account or content it was, a short copy of what was removed (a title, or the start of a comment), the reason, and when. Refused actions are not logged.
+- **Admins can't change their own role**, so the site always keeps at least one admin.
+
+### Making the first admin
+
+No route can make an admin out of nobody, so the first one is made on the server. Log in to the droplet and run:
+
+```sh
+cd /opt/mern && docker compose exec api node src/scripts/setRole.js <username> admin
+```
+
+It works with any role (`user`, `moderator`, `admin`), and the change is logged with no actor. After that, admins manage roles with `PUT /api/admin/users/:username/role`. Locally, run `node src/scripts/setRole.js <username> admin` in `server/` with `MONGODB_URI` set, or `docker compose exec api node src/scripts/setRole.js <username> admin`.
 
 ## Who can see what
 
@@ -226,7 +310,7 @@ A ranking is also a **draft** until it is published (`publishedAt` is `null`). O
 
 **A ranking is never more visible than its template.** A public ranking of an unlisted template behaves as unlisted: it opens by link and appears on the template's page, but never in the feed or on profiles. Any ranking of a private template behaves as private. This also applies when a template is made private after other people ranked it: their rankings disappear for everyone else, and each owner keeps seeing their own.
 
-When someone may not see a template or ranking, the API answers `404`, the same as if it did not exist. `403` is only used when they can see it but may not change it.
+When someone may not see a template or ranking, the API answers `404`, the same as if it did not exist. `403` is only used when they can see it but may not change it. Moderators follow the same rules for seeing, and may also delete what they can see.
 
 ## Data model
 
@@ -244,6 +328,7 @@ erDiagram
     rankings ||--o{ comments : has
     rankings ||--o{ likes : has
     rankings ||--o{ notifications : about
+    users ||--o{ moderationlogs : "acts in or is the target of"
 
     users {
         ObjectId _id PK
@@ -251,6 +336,9 @@ erDiagram
         string email UK "stored lowercase"
         string passwordHash "null for Google or Discord only accounts"
         boolean emailVerified
+        string role "user, moderator or admin. Missing means user"
+        date bannedAt "set while banned"
+        string banReason
         string displayName
         string bio
         string avatarUrl
@@ -292,6 +380,7 @@ erDiagram
         ObjectId templateId FK
         string name
         string imageUrl
+        string altText
         date createdAt
     }
     rankings {
@@ -325,9 +414,20 @@ erDiagram
         ObjectId _id PK
         ObjectId recipientId FK
         ObjectId actorId FK
-        string type "new_ranking, new_comment or new_like"
-        ObjectId rankingId FK
+        string type "new_ranking, new_comment, new_like or content_removed"
+        ObjectId rankingId FK "unset for a removed template or ranking"
+        object removed "content_removed only: kind, title, reason"
         boolean read
+        date createdAt
+    }
+    moderationlogs {
+        ObjectId _id PK
+        ObjectId actorId FK "unset when set with the setRole command"
+        string action "delete_template, delete_ranking, delete_comment, ban, unban or set_role"
+        ObjectId targetUserId FK "whose account or content"
+        ObjectId contentId "the removed template, ranking or comment"
+        string summary "title, start of the comment, or the role change"
+        string reason
         date createdAt
     }
 ```
@@ -382,14 +482,18 @@ Every error response has the same shape. `details` is only present for validatio
 | 400 | `BAD_REQUEST` | Invalid JSON, a used or expired link, an item that is not in the template, liking or commenting on a draft |
 | 401 | `UNAUTHORIZED` | No token, an invalid or expired token, or a wrong email or password |
 | 403 | `EMAIL_NOT_VERIFIED` | Logging in before verifying the email |
-| 403 | `FORBIDDEN` | You can see it, but only its owner or author may change it |
+| 400 | `UPLOAD_TICKET_INVALID` | An upload ticket that is expired, tampered with or made up. Ask for a new one |
+| 403 | `WRONG_PASSWORD` | Deleting an account with the wrong password |
+| 403 | `ACCOUNT_BANNED` | The account is banned: logging in, or any request that needs a token. `error` includes the reason |
+| 403 | `FORBIDDEN` | You can see it, but only its owner or author (or a moderator) may change it, or the route needs a moderator or admin |
 | 404 | `NOT_FOUND` | No such route or document, or one you are not allowed to see |
-| 409 | `CONFLICT` | The email or username is already taken |
-| 413 | `TOO_LARGE` | A body over 100 kB |
+| 409 | `CONFLICT` | The email or username is already taken, a Google or Discord account is already linked, the only admin tries to delete their account, or an upload ticket is used twice |
+| 413 | `TOO_LARGE` | A body over 100 kB, or an image over 5 MB |
 | 429 | `RATE_LIMITED` | Too many login, sign-up or email requests, or AI suggestions (see Authentication) |
 | 500 | `INTERNAL` | Anything unexpected. The details are logged on the server, not sent back |
-| 422, 502, 503 | `AI_…` | AI suggestions only: see `POST /api/templates/suggest-items` |
-| 501 | `NOT_IMPLEMENTED` | A route from the Status table above, or AI suggestions without `ANTHROPIC_API_KEY` |
+| 422, 501, 502, 503 | `AI_…` | AI suggestions only: see `POST /api/templates/suggest-items` |
+| 400, 403, 501, 502, 503 | `OAUTH_…` | Google and Discord login only: see `POST /api/auth/oauth/:provider` |
+| 501 | `NOT_IMPLEMENTED` | For a route added before its logic is written. No route answers it today |
 
 ## Objects
 
@@ -397,7 +501,7 @@ The shapes that come back from more than one endpoint. Optional fields are left 
 
 ### Account
 
-Your own user, from login and `/users/me`. `displayName`, `bio` and `avatarUrl` only appear once set.
+Your own user, from login and `/users/me`. `displayName`, `bio` and `avatarUrl` only appear once set. `role` is `user`, `moderator` or `admin`; the apps show moderator buttons from it.
 
 ```json
 {
@@ -405,10 +509,20 @@ Your own user, from login and `/users/me`. `displayName`, `bio` and `avatarUrl` 
   "username": "ada",
   "email": "ada@example.com",
   "emailVerified": true,
+  "role": "user",
   "displayName": "Ada L.",
   "bio": "Ranks snacks.",
   "notificationPrefs": { "newComment": true, "newRanking": true, "newLike": false },
   "createdAt": "2026-11-15T17:28:23.200Z"
+}
+```
+
+`GET /api/users/me` also includes how the account can log in, for a settings page:
+
+```json
+{
+  "hasPassword": false,
+  "linkedAccounts": [{ "provider": "google", "email": "ada@gmail.com", "linkedAt": "2026-11-16T21:40:00.000Z" }]
 }
 ```
 
@@ -454,6 +568,7 @@ What everyone else sees of a user. It appears as `owner`, `author` and `actor` o
   "templateId": "6721a4b2c2b8a1d4e5f60711",
   "name": "Chips",
   "imageUrl": null,
+  "altText": null,
   "createdAt": "2026-11-15T17:28:23.547Z"
 }
 ```
@@ -504,7 +619,7 @@ What everyone else sees of a user. It appears as `owner`, `author` and `actor` o
 
 ### Notification
 
-`type` is `new_ranking` (someone ranked your template), `new_comment` or `new_like` (on your ranking). `actor` is who did it.
+`type` is `new_ranking` (someone ranked your template), `new_comment` or `new_like` (on your ranking), or `content_removed` (below). `actor` is who did it.
 
 ```json
 {
@@ -529,6 +644,24 @@ What everyone else sees of a user. It appears as `owner`, `author` and `actor` o
   }
 }
 ```
+
+A moderator removing something of yours gives a `content_removed` notification instead. It has no `actorId` and `actor` is `null`, so it never says which moderator. `removed` says what it was. `ranking` is the ranking a removed comment was on, and `null` for a removed template or ranking.
+
+```json
+{
+  "_id": "6721a6d4c2b8a1d4e5f60752",
+  "recipientId": "6721a3f0c2b8a1d4e5f60702",
+  "type": "content_removed",
+  "removed": { "kind": "comment", "title": "This list is garbage", "reason": "Personal attack" },
+  "rankingId": "6721a5c3c2b8a1d4e5f60731",
+  "read": false,
+  "createdAt": "2026-11-16T22:10:00.000Z",
+  "actor": null,
+  "ranking": { "_id": "6721a5c3c2b8a1d4e5f60731", "title": "Road trip picks", "template": { "_id": "6721a4b2c2b8a1d4e5f60711", "title": "Gas station snacks" } }
+}
+```
+
+`removed.kind` is `template`, `ranking` or `comment`, and `reason` only appears when the moderator gave one.
 
 ## Endpoint reference
 
@@ -608,15 +741,50 @@ Response `200`: `{ "message": "Password updated. You can log in now." }`. Using 
 
 Errors: `400` `This link is invalid or has expired`.
 
+### GET /api/auth/oauth/providers
+
+The providers this server has set up. One that isn't set up is left out, so the client can hide its button.
+
+```json
+{
+  "providers": [
+    {
+      "provider": "google",
+      "name": "Google",
+      "clientId": "1234-abc.apps.googleusercontent.com",
+      "authorizeUrl": "https://accounts.google.com/o/oauth2/v2/auth",
+      "scope": "openid email profile"
+    },
+    {
+      "provider": "discord",
+      "name": "Discord",
+      "clientId": "1572074089659637760",
+      "authorizeUrl": "https://discord.com/oauth2/authorize",
+      "scope": "identify email"
+    }
+  ]
+}
+```
+
 ### POST /api/auth/oauth/:provider
 
-Not built yet (`501`). `:provider` is `google` or `discord`. The client runs the provider's sign-in screen itself and sends what it got back:
+`:provider` is `google` or `discord`. The client runs the provider's sign-in page itself (see [Google and Discord](#google-and-discord)) and sends what it got back:
 
 ```json
 { "code": "...", "codeVerifier": "...", "redirectUri": "https://mern.esiegman.dev/oauth/callback" }
 ```
 
-Planned response: the same as login.
+Response `200`: the same as login, `{ token, user }`. The first login creates the account.
+
+| Status | `code` | When |
+| --- | --- | --- |
+| 400 | `OAUTH_CODE_INVALID` | The code expired, was already used, or doesn't match `codeVerifier`. Start the sign-in again |
+| 400 | `OAUTH_REDIRECT_NOT_ALLOWED` | `redirectUri` is not in `OAUTH_REDIRECT_URIS` |
+| 403 | `OAUTH_EMAIL_UNVERIFIED` | The provider has no verified email for this person |
+| 409 | `CONFLICT` | The user with this email already has a different account from this provider linked |
+| 501 | `OAUTH_NOT_CONFIGURED` | This provider's client id and secret aren't set on the server |
+| 502 | `OAUTH_FAILED` | The provider refused our request, usually a wrong secret or an unregistered redirect URI. The reason is in the API log |
+| 503 | `OAUTH_UNAVAILABLE` | The provider couldn't be reached |
 
 ### GET /api/users/me
 
@@ -639,6 +807,33 @@ Send only what changes. `null` clears `displayName`, `bio` or `avatarUrl`.
 
 Response `200`: the updated Account.
 
+### DELETE /api/users/me
+
+Deletes the account for good, with everything it made, the same as deleting each piece by hand:
+
+- its templates, with their items and every ranking made from them, other people's included
+- its rankings, drafts included, with their comments and likes
+- the comments and likes it left on other people's rankings, whose `commentCount` and `likeCount` go down to match
+- its notifications, and other people's notifications about what it did (a moderator's removal notices stay, since they are about the other person's content)
+- its email links, its linked Google and Discord accounts, and every image it uploaded
+
+The moderation log keeps its entries, showing the user as gone. The username and email are free to sign up with again. The token stops working at once: any request with it gets `401` "This account no longer exists".
+
+An account with a password must send it. A Google or Discord-only account sends no body.
+
+```json
+{ "password": "correct horse battery staple" }
+```
+
+Response `204`.
+
+| Status | `code` | When |
+| --- | --- | --- |
+| 400 | `BAD_REQUEST` | The account has a password and none was sent |
+| 403 | `WRONG_PASSWORD` | The password is wrong |
+| 403 | `ACCOUNT_BANNED` | Banned accounts can't delete themselves; an admin can unban them first |
+| 409 | `CONFLICT` | You are the only admin. Make someone else admin first |
+
 ### POST /api/users/me/push-tokens
 
 The Expo app calls this after the user allows notifications.
@@ -653,9 +848,19 @@ Response `204`. Registering the same phone twice is harmless. A token belongs to
 
 Same body. The Expo app calls this on logout. Response `204`.
 
-### POST /api/users/me/oauth/:provider and DELETE /api/users/me/oauth/:provider
+### POST /api/users/me/oauth/:provider
 
-Not built yet (`501`). Link or unlink a Google or Discord account. `POST` takes the same body as `/auth/oauth/:provider`.
+Links a Google or Discord account to the account that is logged in. Same body and provider errors as `POST /api/auth/oauth/:provider`. The provider's email doesn't have to match.
+
+Response `201`: `{ "provider": "discord", "email": "ada@example.com", "linkedAt": "2026-11-16T21:40:00.000Z" }`.
+
+Errors: `409` if that provider account is already linked (to you or to someone else), or you already have one from this provider.
+
+### DELETE /api/users/me/oauth/:provider
+
+Response `204`.
+
+Errors: `404` nothing linked from that provider. `409` it is the only way into the account (no password and nothing else linked).
 
 ### GET /api/users/:username
 
@@ -720,7 +925,7 @@ Creates the template and its starting items together.
 | `coverImageUrl` | An `https` URL, or `null` |
 | `tierLabels` | 1 to 12 labels of 1 to 20 characters. Default `S A B C D F` |
 | `visibility` | `public` (default), `unlisted` or `private` |
-| `items` | Up to 200 of `{ name, imageUrl }`. `name` is 1 to 60 characters, `imageUrl` an `https` URL or `null` |
+| `items` | Up to 200 of `{ name, imageUrl, altText }`. `name` is 1 to 60 characters, `imageUrl` an `https` URL (or an uploaded image's `url`) or `null`. `altText` (1 to 200 characters) describes the picture and is **required whenever `imageUrl` is set**. Items with no picture are text only |
 
 ```json
 {
@@ -783,23 +988,31 @@ Errors: `403` not the owner, `404`.
 
 Deletes the template with its items, every ranking of it, and their comments, likes and notifications.
 
+A moderator can also delete it if they can see it, and may say why. The reason goes in the owner's notification and the log:
+
+```json
+{ "reason": "Off-topic" }
+```
+
+The body is optional, and ignored when owners delete their own.
+
 Response `204`. Errors: `403`, `404`.
 
 ### POST /api/templates/:templateId/items
 
 ```json
-{ "name": "Soda", "imageUrl": null }
+{ "name": "Soda", "imageUrl": "https://example.com/soda.png", "altText": "A red can of soda" }
 ```
 
-Response `201`: the new Item. It shows up as unranked in every existing ranking.
+`altText` is required when `imageUrl` is set. Leave both out for a text-only item. Response `201`: the new Item. It shows up as unranked in every existing ranking.
 
-Errors: `403`, `404`.
+Errors: `400` (a picture without `altText`), `403`, `404`.
 
 ### PATCH /api/templates/:templateId/items/:itemId
 
-Either or both of `name` and `imageUrl`. Response `200`: the updated Item.
+Any of `name`, `imageUrl` and `altText`. Sending an `imageUrl` also needs an `altText`. Setting `imageUrl` to `null` clears `altText` too. Response `200`: the updated Item.
 
-Errors: `403`, `404` no such template, or the item is not in it.
+Errors: `400`, `403`, `404` no such template, or the item is not in it.
 
 ### DELETE /api/templates/:templateId/items/:itemId
 
@@ -927,6 +1140,14 @@ Errors: `400` `Every item must belong to the template being ranked`, `403` not t
 
 Deletes the ranking with its comments, likes and notifications, and recounts the template's `rankingCount`.
 
+A moderator can also delete it if they can see it, and may say why. The reason goes in the owner's notification and the log:
+
+```json
+{ "reason": "Off-topic" }
+```
+
+The body is optional, and ignored when owners delete their own.
+
 Response `204`. Errors: `403`, `404`.
 
 ### PUT /api/rankings/:rankingId/like and DELETE /api/rankings/:rankingId/like
@@ -967,7 +1188,7 @@ Errors: `403` not the author, `404`.
 
 ### DELETE /api/comments/:commentId
 
-Allowed for the comment's author, and for the owner of the ranking it is on.
+Allowed for the comment's author, for the owner of the ranking it is on, and for moderators. A moderator removing someone else's comment may send `{ "reason": "..." }` as above.
 
 Response `204`. Errors: `403`, `404`.
 
@@ -998,13 +1219,129 @@ No body. Response `204`.
 
 ### POST /api/uploads/sign
 
-Not built yet (`501`). The plan: the client asks for a ticket, uploads the image straight to storage with it, then sends the resulting URL as `imageUrl`, `avatarUrl` or `coverImageUrl` on the normal routes. Image bytes never pass through this API.
+Uploading an image takes three steps, the same ones a cloud bucket would need, so the apps won't change if the images ever move to one:
+
+1. Ask for a ticket here.
+2. `PUT` the image to the ticket's `uploadUrl`.
+3. Send the ticket's `url` as `imageUrl`, `avatarUrl` or `coverImageUrl` on the normal routes.
 
 ```json
 { "kind": "item", "contentType": "image/png" }
 ```
 
 `kind` is `item`, `avatar` or `cover`. `contentType` is `image/jpeg`, `image/png` or `image/webp`.
+
+Response `201`:
+
+```json
+{
+  "uploadUrl": "https://mern.esiegman.dev/api/uploads/eyJhbGciOi...",
+  "method": "PUT",
+  "headers": { "Content-Type": "image/png" },
+  "maxBytes": 5242880,
+  "expiresAt": "2026-11-17T12:10:00.000Z",
+  "url": "https://mern.esiegman.dev/api/uploads/files/item/64b000000000000000000001/3f9c0a1b2c3d4e5f60718293.png"
+}
+```
+
+The ticket lasts 10 minutes and works for one image. Limited to 60 tickets an hour per client address.
+
+### PUT /api/uploads/:ticket
+
+Send the image file itself as the body, with the `Content-Type` from the ticket's `headers`. No login token: the ticket is the permission.
+
+```js
+const ticket = await api.post('/uploads/sign', { kind: 'item', contentType: file.type });
+await fetch(ticket.uploadUrl, { method: ticket.method, headers: ticket.headers, body: file });
+await api.patch(`/templates/${templateId}/items/${itemId}`, { imageUrl: ticket.url });
+```
+
+Response `201`: `{ "url": "..." }`, the same `url` as the ticket's. The image is served from it with a long cache lifetime, since a file is never replaced.
+
+| Status | `code` | When |
+| --- | --- | --- |
+| 400 | `BAD_REQUEST` | A `Content-Type` other than the ticket's, an empty body, or a file that isn't really that type of image |
+| 400 | `UPLOAD_TICKET_INVALID` | The ticket expired, was changed, or is a login token. Ask for a new one |
+| 409 | `CONFLICT` | The ticket was already used |
+| 413 | `TOO_LARGE` | Over 5 MB |
+
+Images stay on the server when the item, avatar or cover stops using them. Deleting an account deletes all of its images.
+
+### GET /api/admin/users
+
+Moderators and admins only. `status=staff` lists moderators and admins, `status=banned` lists banned accounts, newest account first. `limit` and `cursor` as in Lists.
+
+Each entry is a Moderation view: the public profile plus `role`, and `bannedAt` and `banReason` while banned. No email or other private fields.
+
+```json
+{
+  "items": [
+    {
+      "_id": "6721a3f0c2b8a1d4e5f60703",
+      "username": "eve",
+      "role": "user",
+      "bannedAt": "2026-11-16T22:12:00.000Z",
+      "banReason": "Harassment",
+      "createdAt": "2026-11-15T17:28:23.200Z"
+    }
+  ],
+  "nextCursor": null
+}
+```
+
+### POST /api/admin/users/:username/ban
+
+Moderators and admins only. The reason is optional, up to 300 characters, and is shown to the banned person when they try to log in.
+
+```json
+{ "reason": "Harassment" }
+```
+
+Response `200`: the Moderation view. Banning someone already banned changes the reason.
+
+Errors: `400` banning yourself. `403` banning an admin, or a moderator unless you are an admin. `404` no such user.
+
+### DELETE /api/admin/users/:username/ban
+
+Moderators and admins only. Response `200`: the Moderation view, without `bannedAt`. Unbanning someone who isn't banned changes nothing.
+
+### PUT /api/admin/users/:username/role
+
+Admins only.
+
+```json
+{ "role": "moderator" }
+```
+
+Response `200`: the Moderation view. It applies to that person's next request.
+
+Errors: `400` changing your own role. `409` giving a banned account a role above user (unban them first). `404` no such user.
+
+### GET /api/admin/log
+
+Admins only. Every moderation action, newest first. `limit` and `cursor` as in Lists. `actor` is `null` for a role set with the setRole command on the server.
+
+```json
+{
+  "items": [
+    {
+      "_id": "6721a7e5c2b8a1d4e5f60761",
+      "actorId": "6721a3f0c2b8a1d4e5f60709",
+      "action": "delete_comment",
+      "targetUserId": "6721a3f0c2b8a1d4e5f60703",
+      "contentId": "6721a6a1c2b8a1d4e5f60741",
+      "summary": "This list is garbage",
+      "reason": "Personal attack",
+      "createdAt": "2026-11-16T22:10:00.000Z",
+      "actor": { "_id": "6721a3f0c2b8a1d4e5f60709", "username": "mod", "createdAt": "2026-11-15T17:28:23.200Z" },
+      "targetUser": { "_id": "6721a3f0c2b8a1d4e5f60703", "username": "eve", "createdAt": "2026-11-15T17:28:23.200Z" }
+    }
+  ],
+  "nextCursor": null
+}
+```
+
+`action` is `delete_template`, `delete_ranking`, `delete_comment`, `ban`, `unban` or `set_role`. For `set_role`, `summary` reads like `bob: user to moderator`.
 
 ### GET /api/health
 
@@ -1023,8 +1360,6 @@ Used by the Docker healthcheck and the check at the end of each deploy.
 3. Add a thin function to `*.controller.js` and a line to `*.routes.js`.
 4. Add its row to the table in `test/routes.test.js`, and cover it in one of the `*.integration.test.js` files.
 
-For the five unwritten routes, steps 1 and 3 are done. Each service or integration function has a comment above it listing what it must do. When you finish one, change its row in `test/routes.test.js` from `TODO` to `DONE`.
-
 ## Configuration
 
 | Variable | Default | Purpose |
@@ -1039,6 +1374,10 @@ For the five unwritten routes, steps 1 and 3 are done. Each service or integrati
 | `EMAIL_FROM` | `Tier List <no-reply@APP_URL's domain>` | Who emails come from. Most providers only accept a domain you have verified with them |
 | `EXPO_ACCESS_TOKEN` | | Only if "enhanced push security" is on in Expo's dashboard |
 | `ANTHROPIC_API_KEY` | | Claude API key for AI item suggestions. Create one in the Claude Console; it starts with `sk-ant-api`. Without it, suggest-items answers `501` |
+| `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | | The "Tier List Web" OAuth client in the Google Cloud project "Tier List App" (Google Auth Platform > Clients). Without both, Google login answers `501` |
+| `DISCORD_CLIENT_ID`, `DISCORD_CLIENT_SECRET` | | The "Tier List App" application in the Discord Developer Portal (OAuth2 page). Without both, Discord login answers `501` |
+| `UPLOAD_DIR` | `uploads` (`/data/uploads` in the Docker image) | Folder for uploaded images. The `uploads` volume on the droplet |
+| `OAUTH_REDIRECT_URIS` | `APP_URL/oauth/callback` | Comma-separated redirect URIs clients may use for Google and Discord login, such as an Expo app's. Each must also be registered with the provider |
 
 The API checks these at startup and stops with a message naming any that are missing or malformed. In Docker they come from `compose.yaml` locally and from `/opt/mern/.env` on the droplet. To run outside Docker, copy `.env.example` to `.env`.
 
@@ -1067,11 +1406,15 @@ For trying the API by hand rather than in tests, the sample data gives you accou
 | File | Covers |
 | --- | --- |
 | `app.test.js` | Health, 404s, invalid JSON, validation messages, bad tokens and cursors |
-| `routes.test.js` | Every route: guests get `401` where a token is needed, unwritten routes answer `501` |
+| `routes.test.js` | Every route: guests get `401` where a token is needed, admin routes refuse lower roles, banned accounts get `403` |
 | `lib.test.js` | Tokens, cursors, visibility rules, community ranking maths, notification switches |
 | `auth.integration.test.js` | Sign-up, verification, login, password reset, `/users/me` |
+| `accountDeletion.integration.test.js` | Deleting your account: the password check, the last admin, everything it made going, the counts it touched |
+| `moderation.integration.test.js` | Moderators deleting content, the owner's notice, bans, roles, the log, the setRole command |
+| `oauth.integration.test.js` | Google and Discord login, matching by verified email, taking over unverified sign-ups, linking and unlinking (providers faked) |
 | `models.integration.test.js` | Every model saves against the validators in `db/setup.js` |
 | `content.integration.test.js` | Templates, items, rankings, publishing, likes, community ranking, cascading deletes |
 | `social.integration.test.js` | Profiles, push tokens, comments and edits, the notification list |
 | `visibility.integration.test.js` | Rankings follow their template's visibility, `rankingCount` through every change, push on publish |
-| `integrations.test.js` | The Expo push request and its replies, the email settings, AI suggestions (with Claude's API swapped out) |
+| `uploads.test.js` | Upload tickets, saving and serving images, wrong types, size limit, forged tickets |
+| `integrations.test.js` | The Expo push request and its replies, the email settings, AI suggestions (with Claude's API swapped out), the Google and Discord requests and their errors |

@@ -1,18 +1,29 @@
 import { useState, type FormEvent } from "react";
 import { useNavigate } from "react-router-dom";
+import AltTextField from "../components/AltTextField";
+import ImageField from "../components/ImageField";
 import Notice from "../components/Notice";
 import { apiFetch } from "../utils/api";
 import type { TemplateDetail, Visibility } from "../utils/types";
 
-// One item per line. "Name | https://image-link" adds a picture.
-function parseItems(text: string): { name: string; imageUrl: string | null }[] {
+interface DraftItem {
+  name: string;
+  imageUrl: string | null;
+  altText: string | null;
+}
+
+// One item per line. "Name" is a text-only item. "Name | https://image-link | What the picture shows"
+// adds a picture, and the description is required with it (it is read aloud by screen readers).
+function parseItems(text: string): DraftItem[] {
   return text
     .split("\n")
     .map((line) => line.trim())
     .filter(Boolean)
     .map((line) => {
-      const [name, image] = line.split("|").map((part) => part.trim());
-      return { name, imageUrl: image ? image : null };
+      const [name, image, ...description] = line.split("|").map((part) => part.trim());
+      const imageUrl = image ? image : null;
+      const altText = description.join(" | ").trim();
+      return { name, imageUrl, altText: imageUrl ? altText || null : null };
     });
 }
 
@@ -23,7 +34,12 @@ function CreateTemplatePage() {
   const [category, setCategory] = useState("");
   const [tierLabels, setTierLabels] = useState("S, A, B, C, D, F");
   const [visibility, setVisibility] = useState<Visibility>("public");
+  const [coverImageUrl, setCoverImageUrl] = useState("");
   const [itemsText, setItemsText] = useState("");
+  // The "add an item with a picture" helper below the list
+  const [photoName, setPhotoName] = useState("");
+  const [photoUrl, setPhotoUrl] = useState("");
+  const [photoAlt, setPhotoAlt] = useState("");
   const [busy, setBusy] = useState(false);
   const [suggesting, setSuggesting] = useState(false);
   const [error, setError] = useState("");
@@ -52,9 +68,28 @@ function CreateTemplatePage() {
     }
   }
 
+  // Adds one "Name | link" line, the format the list already understands
+  function addPhotoItem() {
+    const name = photoName.replace(/[|\n]/g, " ").trim();
+    if (!name) return;
+    const alt = photoAlt.replace(/[|\n]/g, " ").trim();
+    const line = photoUrl.trim() ? `${name} | ${photoUrl.trim()} | ${alt}` : name;
+    setItemsText((current) => [current.trim(), line].filter(Boolean).join("\n"));
+    setPhotoName("");
+    setPhotoUrl("");
+    setPhotoAlt("");
+  }
+
   async function submit(e: FormEvent) {
     e.preventDefault();
     setError("");
+
+    const items = parseItems(itemsText);
+    const undescribed = items.find((item) => item.imageUrl && !item.altText);
+    if (undescribed) {
+      setError(`“${undescribed.name}” has a picture but no description. Write “Name | picture link | what the picture shows”, or remove its link for a text-only item.`);
+      return;
+    }
 
     const labels = tierLabels.split(",").map((label) => label.trim()).filter(Boolean);
     if (labels.length === 0 || labels.length > 12) {
@@ -69,9 +104,10 @@ function CreateTemplatePage() {
         title,
         description: description.trim() || undefined,
         category: category.trim() || undefined,
+        coverImageUrl: coverImageUrl.trim() || undefined,
         tierLabels: labels,
         visibility,
-        items: parseItems(itemsText),
+        items,
       },
     });
     setBusy(false);
@@ -110,6 +146,10 @@ function CreateTemplatePage() {
         </div>
 
         <div className="mb-3">
+          <ImageField label="Cover picture (optional)" kind="cover" value={coverImageUrl} onChange={setCoverImageUrl} disabled={busy} help="Shown on the template's card in browse. Paste a link or upload a picture." />
+        </div>
+
+        <div className="mb-3">
           <label htmlFor="tiers" className="form-label fw-semibold">Tier names, best to worst</label>
           <input id="tiers" className="form-control" value={tierLabels} onChange={(e) => setTierLabels(e.target.value)} />
           <div className="form-text">Separate with commas. Up to 12 tiers.</div>
@@ -123,8 +163,23 @@ function CreateTemplatePage() {
             </button>
           </div>
           <textarea id="items" className="form-control font-monospace" rows={8} value={itemsText} onChange={(e) => setItemsText(e.target.value)} placeholder={"Beef jerky\nSour gummy worms\nHot Cheetos | https://example.com/cheetos.jpg"} />
-          <div className="form-text">One item per line. To add a picture, put its https link after a “|”. You can add more later.</div>
+          <div className="form-text">One item per line. Just a name makes a text-only item. For a picture, write “Name | https link | what the picture shows”, or use the box below. You can add more later.</div>
         </div>
+
+        <fieldset className="mb-3 border rounded p-3">
+          <legend className="h6 float-none w-auto px-1 mb-2">Add an item with a picture</legend>
+          <div className="mb-2">
+            <label htmlFor="photoName" className="form-label fw-semibold">Item name</label>
+            <input id="photoName" className="form-control" maxLength={60} value={photoName} onChange={(e) => setPhotoName(e.target.value)} />
+          </div>
+          <div className="mb-2">
+            <ImageField label="Item picture" kind="item" value={photoUrl} onChange={setPhotoUrl} disabled={busy} />
+            <AltTextField value={photoAlt} onChange={setPhotoAlt} hasPicture={Boolean(photoUrl.trim())} disabled={busy} />
+          </div>
+          <button type="button" className="btn btn-sm btn-outline-primary" onClick={addPhotoItem} disabled={!photoName.trim() || (Boolean(photoUrl.trim()) && !photoAlt.trim())}>
+            Add to the list
+          </button>
+        </fieldset>
 
         {notice && <Notice>{notice}</Notice>}
         {error && <Notice kind="error">{error}</Notice>}

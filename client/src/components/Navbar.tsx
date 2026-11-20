@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link, NavLink, useNavigate, useSearchParams } from "react-router-dom";
 import { apiFetch } from "../utils/api";
+import { isModerator } from "../utils/roles";
 import { useAuth } from "../utils/useAuth";
 import type { AppNotification, Page } from "../utils/types";
 import Avatar from "./Avatar";
@@ -86,6 +87,7 @@ function Navbar() {
                     </span>
                   </NavLink>
                   <NavLink to="/settings" className={linkClass}>Settings</NavLink>
+                  {isModerator(user) && <NavLink to="/admin" className={linkClass}>Moderation</NavLink>}
                   <button type="button" className="btn btn-sm btn-outline-light ms-md-2" onClick={logOut}>
                     Log out
                   </button>

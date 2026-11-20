@@ -13,4 +13,9 @@ const oauthAccountSchema = new mongoose.Schema(
   { collection: 'oauthaccounts', versionKey: false },
 );
 
+// What the account's owner sees of it, in GET /users/me
+oauthAccountSchema.methods.toLinkedAccount = function toLinkedAccount() {
+  return { provider: this.provider, ...(this.email && { email: this.email }), linkedAt: this.linkedAt };
+};
+
 export const OAuthAccount = mongoose.model('OAuthAccount', oauthAccountSchema);

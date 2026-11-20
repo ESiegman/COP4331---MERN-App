@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { optionalAuth, requireAuth } from '../../middleware/auth.js';
 import { aiLimiter } from '../../middleware/rateLimit.js';
 import { validate } from '../../middleware/validate.js';
-import { pageQuery } from '../../lib/schemas.js';
+import { pageQuery, reasonBody } from '../../lib/schemas.js';
 import * as rankings from '../rankings/rankings.controller.js';
 import * as controller from './templates.controller.js';
 import * as schemas from './templates.schemas.js';
@@ -17,7 +17,7 @@ router.post('/suggest-items', requireAuth, aiLimiter, validate({ body: schemas.s
 
 router.get('/:templateId', optionalAuth, validate({ params }), controller.getTemplate);
 router.patch('/:templateId', requireAuth, validate({ params, body: schemas.update }), controller.updateTemplate);
-router.delete('/:templateId', requireAuth, validate({ params }), controller.deleteTemplate);
+router.delete('/:templateId', requireAuth, validate({ params, body: reasonBody }), controller.deleteTemplate);
 
 router.post('/:templateId/items', requireAuth, validate({ params, body: schemas.addItem }), controller.addItem);
 router.patch(

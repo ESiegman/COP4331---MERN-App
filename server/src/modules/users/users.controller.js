@@ -4,13 +4,17 @@ import * as templatesService from '../templates/templates.service.js';
 import * as usersService from './users.service.js';
 
 export async function getAccount(req, res) {
-  const user = await usersService.getAccount(req.userId);
-  res.json(user.toAccount());
+  res.json(await usersService.getAccount(req.userId));
 }
 
 export async function updateAccount(req, res) {
   const user = await usersService.updateAccount(req.userId, req.valid.body);
   res.json(user.toAccount());
+}
+
+export async function deleteAccount(req, res) {
+  await usersService.deleteAccount(req.userId, req.valid.body);
+  res.status(204).end();
 }
 
 export async function addPushToken(req, res) {

@@ -1,5 +1,10 @@
-import { notFound, unauthorized } from '../../lib/errors.js';
-import { User } from '../../models/index.js';
+import bcrypt from 'bcryptjs';
+import { deleteUserUploads } from '../../integrations/storage.js';
+import { KEEP_UPDATED_AT, withTransaction } from '../../lib/db.js';
+import { badRequest, conflict, forbidden, notFound, unauthorized } from '../../lib/errors.js';
+import { logger } from '../../lib/logger.js';
+import { AuthToken, Comment, Item, Like, Notification, OAuthAccount, Ranking, Template, User } from '../../models/index.js';
+import { recountRankings } from '../templates/templates.service.js';
 
 // "Manage profile" and "Choose notifications" from the use case diagram, plus public profiles.
 
@@ -32,8 +37,17 @@ export async function getProfile(username) {
   return (await findUserByUsername(username)).toPublicProfile();
 }
 
-// GET /users/me
-export const getAccount = (userId) => findAccount(userId);
+// GET /users/me: the account, plus the ways it can log in, for a settings page
+export async function getAccount(userId) {
+  const user = await User.findById(userId).select('+passwordHash');
+  if (!user) throw accountGone();
+  const linked = await OAuthAccount.find({ userId }).sort({ linkedAt: 1 });
+  return {
+    ...user.toAccount(),
+    hasPassword: Boolean(user.passwordHash),
+    linkedAccounts: linked.map((account) => account.toLinkedAccount()),
+  };
+}
 
 // PATCH /users/me
 export async function updateAccount(userId, { notificationPrefs = {}, ...profile }) {
@@ -67,4 +81,66 @@ export async function addPushToken(userId, token) {
 // DELETE /users/me/push-tokens  (the Expo app calls this on logout)
 export async function removePushToken(userId, token) {
   await User.updateOne({ _id: userId }, { $pull: { pushTokens: token } });
+}
+
+// DELETE /users/me  ("Delete account")
+// Removes the account and everything it made, the same as deleting each piece by hand: its
+// templates (with every ranking made from them, whoever made it), its rankings (with their
+// comments and likes), and the comments and likes it left on other people's rankings, whose
+// counts go down to match. Notifications to it and about what it did, its email links and its
+// Google and Discord links and its uploaded images go too. The moderation log keeps its entries, with the user gone.
+export async function deleteAccount(userId, { password }) {
+  const user = await User.findById(userId).select('+passwordHash');
+  if (!user) throw accountGone();
+
+  // A stolen token alone is not enough to delete an account that has a password
+  if (user.passwordHash) {
+    if (!password) throw badRequest('Enter your password to delete this account');
+    if (!(await bcrypt.compare(password, user.passwordHash))) throw forbidden('Wrong password', 'WRONG_PASSWORD');
+  }
+  if (user.role === 'admin' && !(await User.exists({ _id: { $ne: user._id }, role: 'admin' }))) {
+    throw conflict('You are the only admin. Make someone else admin first.');
+  }
+
+  await withTransaction(async () => {
+    const templateIds = await Template.find({ ownerId: user._id }).distinct('_id');
+    const rankingIds = await Ranking.find({ $or: [{ ownerId: user._id }, { templateId: { $in: templateIds } }] }).distinct('_id');
+    const onKeptRankings = { rankingId: { $nin: rankingIds } };
+
+    // Counters on the rankings that stay
+    const comments = await Comment.find({ authorId: user._id, ...onKeptRankings }).select('rankingId').lean();
+    const commentsPerRanking = Map.groupBy(comments, (comment) => String(comment.rankingId));
+    for (const [rankingId, theirs] of commentsPerRanking) {
+      await Ranking.updateOne({ _id: rankingId }, { $inc: { commentCount: -theirs.length } }, KEEP_UPDATED_AT);
+    }
+    const liked = await Like.find({ userId: user._id, ...onKeptRankings }).distinct('rankingId');
+    await Ranking.updateMany({ _id: { $in: liked } }, { $inc: { likeCount: -1 } }, KEEP_UPDATED_AT);
+
+    // Other people's templates this account published rankings of, whose counts change
+    const rankedTemplateIds = await Ranking.find({
+      ownerId: user._id, templateId: { $nin: templateIds }, publishedAt: { $ne: null },
+    }).distinct('templateId');
+
+    await Comment.deleteMany({ $or: [{ authorId: user._id }, { rankingId: { $in: rankingIds } }] });
+    await Like.deleteMany({ $or: [{ userId: user._id }, { rankingId: { $in: rankingIds } }] });
+    // A removal notice someone got from this account as a moderator stays: it is about their content
+    await Notification.deleteMany({
+      $or: [
+        { recipientId: user._id },
+        { rankingId: { $in: rankingIds } },
+        { actorId: user._id, type: { $ne: 'content_removed' } },
+      ],
+    });
+    await Ranking.deleteMany({ _id: { $in: rankingIds } });
+    await Item.deleteMany({ templateId: { $in: templateIds } });
+    await Template.deleteMany({ _id: { $in: templateIds } });
+    for (const templateId of rankedTemplateIds) await recountRankings(templateId);
+
+    await AuthToken.deleteMany({ userId: user._id });
+    await OAuthAccount.deleteMany({ userId: user._id });
+    await user.deleteOne();
+  });
+
+  // Files can't join the transaction, so they go once it has committed
+  await deleteUserUploads(user._id).catch((err) => logger.error({ err }, `Uploads of deleted user ${user._id} not removed`));
 }

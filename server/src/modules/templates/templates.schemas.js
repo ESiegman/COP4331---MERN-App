@@ -10,10 +10,18 @@ const fields = {
   visibility,
 };
 
-const item = z.object({
+const itemFields = z.object({
   name: text().trim().min(1).max(60),
   imageUrl: imageUrl.nullable().optional(),
+  // Describes the picture for people who can't see it. An item can also be text only (no imageUrl).
+  altText: text().trim().min(1).max(200).nullable().optional(),
 });
+
+// A picture needs a description: the accessibility rule for every item that has one
+const describePicture = (value) => !value.imageUrl || Boolean(value.altText);
+const describePictureError = { message: 'is required when the item has a picture', path: ['altText'] };
+
+const item = itemFields.refine(describePicture, describePictureError);
 
 export const templateParams = idParams('templateId');
 export const itemParams = idParams('templateId', 'itemId');
@@ -39,7 +47,7 @@ export const create = z.object({
 export const update = atLeastOneField(z.object(fields).partial());
 
 export const addItem = item;
-export const updateItem = atLeastOneField(item.partial());
+export const updateItem = atLeastOneField(itemFields.partial()).refine(describePicture, describePictureError);
 
 export const suggestItems = z.object({
   topic: text().trim().min(2).max(80),

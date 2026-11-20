@@ -28,7 +28,7 @@ export async function saveRanking(req, res) {
 }
 
 export async function deleteRanking(req, res) {
-  await rankingsService.deleteRanking(req.userId, req.valid.params.rankingId);
+  await rankingsService.deleteRanking(req.userId, req.valid.params.rankingId, { role: req.userRole, reason: req.valid.body.reason });
   res.status(204).end();
 }
 
