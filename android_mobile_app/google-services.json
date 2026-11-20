@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "642121218733",
+    "project_id": "mern-stack-ce714",
+    "storage_bucket": "mern-stack-ce714.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:642121218733:android:7d272079c43fccca146424",
+        "android_client_info": {
+          "package_name": "dev.esiegman.tierlist"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCXAIyoDmsJeldEmGJyvR9m0bwRp5LekmI"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
