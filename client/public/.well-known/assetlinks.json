@@ -1,0 +1,10 @@
+[{
+  "relation": ["delegate_permission/common.handle_all_urls"],
+  "target": {
+    "namespace": "android_app",
+    "package_name": "dev.esiegman.tierlist",
+    "sha256_cert_fingerprints": [
+      "CA:0A:C1:DB:C9:F4:3E:0D:B0:F5:27:53:51:A9:51:9A:3D:55:C1:E8:61:78:CA:A8:CA:50:D5:9E:15:A9:FF:39"
+    ]
+  }
+}]
